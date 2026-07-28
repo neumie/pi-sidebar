@@ -94,6 +94,7 @@ describe("background jobs adapter", () => {
 describe("subagent status adapter", () => {
 	it("compacts the documented RPC status text", () => {
 		const parsed = parseSubagentStatusText([
+			"Spawn budget: unlimited",
 			"Active async runs: 1",
 			"",
 			"- abc123 | running | parallel [fresh] | 2/2 running | /tmp/project",
@@ -108,7 +109,10 @@ describe("subagent status adapter", () => {
 	});
 
 	it("hides the panel when no async work is active", () => {
-		assert.deepEqual(parseSubagentStatusText("No active async runs."), { lines: [], active: false });
+		assert.deepEqual(
+			parseSubagentStatusText("Spawn budget: unlimited\nNo active async runs."),
+			{ lines: [], active: false },
+		);
 	});
 
 	it("negotiates RPC before status and clears stale activity on failure", async () => {

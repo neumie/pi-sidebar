@@ -51,12 +51,17 @@ function launchLabels(value: unknown): string[] {
 export function parseSubagentStatusText(value: unknown): { lines: string[]; active: boolean } {
 	if (typeof value !== "string") return { lines: [], active: false };
 	const trimmed = value.trim();
-	if (!trimmed || /^No active async runs\.?$/i.test(trimmed)) return { lines: [], active: false };
+	if (!trimmed) return { lines: [], active: false };
 	const source = trimmed.split("\n").map((line) => line.trimEnd()).filter((line) => line.trim());
-	const heading = source[0]?.match(/^Active async runs:\s*(\d+)/i);
-	const lines: string[] = [];
-	if (heading) lines.push(`${heading[1]} async run${heading[1] === "1" ? "" : "s"}`);
-	for (const original of source.slice(heading ? 1 : 0)) {
+	if (source.some((line) => /^No active async runs\.?$/i.test(line.trim()))) {
+		return { lines: [], active: false };
+	}
+	const headingIndex = source.findIndex((line) => /^Active async runs:\s*\d+/i.test(line.trim()));
+	if (headingIndex < 0) return { lines: [], active: false };
+	const heading = source[headingIndex]!.trim().match(/^Active async runs:\s*(\d+)/i);
+	if (!heading || heading[1] === "0") return { lines: [], active: false };
+	const lines: string[] = [`${heading[1]} async run${heading[1] === "1" ? "" : "s"}`];
+	for (const original of source.slice(headingIndex + 1)) {
 		let line = original.trim();
 		if (line.startsWith("- ")) line = `● ${line.slice(2)}`;
 		else if (/^\d+\./.test(line)) line = `  ${line}`;

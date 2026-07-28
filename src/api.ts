@@ -21,7 +21,9 @@ export interface SidebarPanelConnection {
 }
 
 export interface SidebarPanelRenderContext {
+	/** Usable body columns after the host divider, padding, and body indent. */
 	readonly width: number;
+	/** Remaining body rows, excluding host-owned headings and section spacing. */
 	readonly height: number;
 	readonly theme: Theme;
 	readonly now: number;
@@ -30,6 +32,7 @@ export interface SidebarPanelRenderContext {
 export interface SidebarPanel {
 	/** Globally unique stable identifier, preferably namespaced. */
 	readonly id: string;
+	/** Short sentence-case section title. */
 	readonly title: string;
 	readonly order?: number;
 	connect?(

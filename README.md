@@ -1,20 +1,21 @@
 # pi-sidebar
 
-A docked, extensible activity sidebar for [Pi](https://pi.dev).
+A docked, extensible activity sidebar for [Pi](https://pi.dev), rendered as a flat Helm-inspired activity rail.
 
 ```text
-┌──────────────────────── Pi ────────────────────────┬──── PI SIDEBAR ────┐
-│ conversation, tools, editor, and session footer   │ Subagents          │
-│ reflow into the remaining width                   │ ● reviewer · 18s   │
-│                                                   │                    │
-│                                                   │ Background jobs    │
-│                                                   │ ● Typecheck · 7s   │
-└───────────────────────────────────────────────────┴────────────────────┘
+Pi transcript and tools                         │  Activity
+                                                │
+                                                │  Subagents
+                                                │    ● reviewer · 18s
+                                                │
+Pi editor and session footer                    │  Background jobs
+                                                │    ● Typecheck · 7s
 ```
 
 ## Features
 
 - Reserves a right-hand column so Pi's transcript, editor, widgets, and footer reflow instead of rendering underneath it.
+- Minimal chrome: one quiet left divider, sentence-case hierarchy, whitespace between sections, and accent reserved for live activity.
 - Does not replace the footer, so it composes with [`pi-footer`](https://github.com/neumie/pi-footer).
 - Zero-config [`pi-subagents`](https://github.com/neumie/pi-subagents) panel through its versioned in-process RPC and lifecycle events.
 - Zero-config [`pi-background-jobs`](https://github.com/neumie/pi-background-jobs) panel through its stable `background-jobs:changed` event.
@@ -62,7 +63,7 @@ Runtime command changes are session-scoped. Environment defaults:
 | `PI_SIDEBAR_GUTTER` | `1` | Blank columns between Pi and the sidebar. |
 | `PI_SIDEBAR_MIN_MAIN_WIDTH` | `64` | Minimum columns preserved for Pi. |
 
-The sidebar hides when the terminal cannot fit the configured main width, gutter, and sidebar width.
+The sidebar hides when the terminal cannot fit the configured main width, gutter, and sidebar width. The configured width includes the divider and internal padding. Providers receive `configured width - 6` body columns; their height excludes host-owned headings and section spacing.
 
 ## Built-in integrations
 
@@ -115,10 +116,12 @@ export default function deployments(pi: ExtensionAPI): void {
 Panel rules:
 
 - `id` is globally unique and stable.
+- `title` is short and sentence case; the host preserves provider wording rather than rewriting it.
 - `render()` is synchronous and returns bounded terminal lines.
+- `render({ width, height })` receives only the usable panel-body area, after the host divider, padding, title, and section spacing.
 - Returning no lines hides the panel section.
 - `connect()` owns subscriptions or timers and returns their disposer.
-- The host clips every line and isolates render/connect failures by panel.
+- The host clips every line and isolates render/connect failures by panel, including malformed or hostile output values.
 - Registration replays after host readiness, so package load order does not matter.
 - A stale disposer cannot remove a newer registration with the same id.
 
@@ -146,7 +149,7 @@ Requires Node.js 22.19 or newer. Pi loads the TypeScript extension directly; the
 
 ## Acknowledgements
 
-The compatibility approach was informed by the Pi sidebar ecosystem, especially the public-overlay design in [`jrimmer/pi-sidebar`](https://github.com/jrimmer/pi-sidebar), the renderer-width approach in [`pi-atelier`](https://github.com/michaelmjhhhh/pi-atelier), and the shared-card registry in [`Catdaemon/pi-extensions`](https://github.com/Catdaemon/pi-extensions).
+The compatibility approach was informed by the Pi sidebar ecosystem, especially the public-overlay design in [`jrimmer/pi-sidebar`](https://github.com/jrimmer/pi-sidebar), the renderer-width approach in [`pi-atelier`](https://github.com/michaelmjhhhh/pi-atelier), and the shared-card registry in [`Catdaemon/pi-extensions`](https://github.com/Catdaemon/pi-extensions). The flat visual hierarchy follows the design principles used by Neumie's Helm project: spacing and typography instead of in-flow cards.
 
 ## License
 

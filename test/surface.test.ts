@@ -44,6 +44,9 @@ describe("createSidebarSurface", () => {
 		assert.deepEqual(tui.render(120), ["main:77"]);
 		assert.equal(tui.overlays[0]?.nonCapturing, true);
 		assert.equal(tui.overlays[0]?.anchor, "top-right");
+		assert.equal(tui.overlays[0]?.width, 42);
+		assert.equal(tui.overlays[0]?.maxHeight, "100%");
+		assert.equal(tui.overlays[0]?.margin, 0);
 		assert.equal(component.presentation, "dock");
 
 		surface.dispose();
@@ -72,10 +75,11 @@ describe("createSidebarSurface", () => {
 		assert.deepEqual(tui.render(120), ["main:120"]);
 	});
 
-	it("does not reserve columns below the responsive threshold", () => {
+	it("reserves only at or above the exact responsive threshold", () => {
 		const tui = new FakeTui();
 		const surface = createSidebarSurface(tui as unknown as TUI, fakeComponent(), options);
-		assert.deepEqual(tui.render(100), ["main:100"]);
+		assert.deepEqual(tui.render(107), ["main:64"]);
+		assert.deepEqual(tui.render(106), ["main:106"]);
 		surface.dispose();
 	});
 });

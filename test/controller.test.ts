@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import type { Component, OverlayOptions, TUI } from "@earendil-works/pi-tui";
+import { visibleWidth, type Component, type OverlayOptions, type TUI } from "@earendil-works/pi-tui";
 import { SidebarController } from "../src/controller.ts";
 import { SIDEBAR_REGISTER_EVENT } from "../src/protocol.ts";
 
@@ -46,6 +46,7 @@ function harness() {
 	const tui = new FakeTui();
 	let widget: (Component & { dispose?(): void }) | undefined;
 	const notifications: string[] = [];
+	let footerWrites = 0;
 	const ui = {
 		setWidget(_key: string, content: unknown) {
 			widget?.dispose?.();
@@ -54,6 +55,7 @@ function harness() {
 				: undefined;
 		},
 		notify(message: string) { notifications.push(message); },
+		setFooter() { footerWrites += 1; },
 	};
 	const ctx = {
 		mode: "tui",
@@ -74,6 +76,7 @@ function harness() {
 	} as unknown as ExtensionAPI;
 	return {
 		pi, events, tui, ctx, commands, notifications,
+		footerWrites: () => footerWrites,
 		start: () => lifecycle.get("session_start")?.forEach((handler) => handler({ reason: "startup" }, ctx)),
 		shutdown: () => lifecycle.get("session_shutdown")?.forEach((handler) => handler({ reason: "quit" }, ctx)),
 	};
@@ -101,8 +104,14 @@ describe("SidebarController", () => {
 		assert.equal(connected, 1);
 		assert.equal(h.tui.overlay?.options?.nonCapturing, true);
 		assert.deepEqual(h.tui.render(120), ["main:77"]);
-		assert.match(h.tui.overlay?.component.render(42).join("\n") ?? "", /Activity/);
-		assert.match(h.tui.overlay?.component.render(42).join("\n") ?? "", /active/);
+		const sidebarLines = h.tui.overlay?.component.render(42) ?? [];
+		assert.equal(sidebarLines.length, 14);
+		assert.ok(sidebarLines.every((line) => visibleWidth(line) === 42));
+		assert.ok(sidebarLines.every((line) => line.startsWith("│")));
+		assert.doesNotMatch(sidebarLines.join("\n"), /[╭╮╰╯─]/);
+		assert.match(sidebarLines.join("\n"), /Activity/);
+		assert.match(sidebarLines.join("\n"), /active/);
+		assert.equal(h.footerWrites(), 0);
 
 		h.shutdown();
 		assert.equal(disconnected, 1);

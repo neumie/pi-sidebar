@@ -35,6 +35,8 @@ The dock adapter captures the active `tui.render` function and replaces it with 
 
 The sidebar itself is one `TUI.showOverlay()` component anchored at top-right with `nonCapturing: true`. TUI overlay compositing still uses the physical terminal width, so it paints into the columns withheld from the main renderer.
 
+The renderer is a flat activity rail: every emitted row has one host-owned left divider, two columns of content inset, and one trailing padding column. Panel bodies add two more columns of indentation, so a configured width `W` yields provider body width `W - 6`. That small terminal-specific sub-inset distinguishes live values from section labels while the rail remains the single structural edge. Whitespace separates visible sections; no top, right, bottom, or horizontal-rule chrome is emitted. The empty state names the state and directs the user to start a subagent or background job.
+
 ### Overlay fallback
 
 `auto` mode checks whether `render` is already an own property on the TUI instance. That indicates another extension may already wrap layout. Instead of stacking unsupported wrappers, the host uses a normal right overlay and leaves Pi at full width.
@@ -55,6 +57,9 @@ Narrow terminals hide both presentations rather than leave an unusably small edi
 10. Ignore late async connection completions from stale session generations.
 11. Let missing optional integrations produce no panel rather than warnings.
 12. Keep data adapters on documented event/RPC contracts; do not deep-import peer internals.
+13. Emit exactly one host-owned left divider on every sidebar row and no surrounding frame.
+14. Keep every emitted row exactly the configured visible width and never exceed the current terminal height.
+15. Give providers only their usable body width and remaining body-row budget; hidden panels consume no heading or spacing.
 
 ## Integration contracts
 
