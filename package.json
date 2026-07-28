@@ -1,0 +1,52 @@
+{
+  "name": "@neumie/pi-sidebar",
+  "version": "0.1.0",
+  "description": "A docked, extensible activity sidebar for Pi.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/neumie/pi-sidebar.git"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "sidebar",
+    "subagents",
+    "background-jobs"
+  ],
+  "files": [
+    "docs",
+    "extensions",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --project tsconfig.json",
+    "typecheck:test": "tsc --project tsconfig.test.json",
+    "test": "node --experimental-transform-types --test test/*.test.ts",
+    "check": "npm run typecheck && npm run typecheck:test && npm test"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/sidebar.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.82.1 <0.83.0",
+    "@earendil-works/pi-tui": ">=0.82.1 <0.83.0"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.82.1",
+    "@earendil-works/pi-tui": "^0.82.1",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.3"
+  }
+}
