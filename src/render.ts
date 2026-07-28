@@ -153,7 +153,7 @@ export class SidebarComponent implements Component {
 		);
 		const bodyWidth = Math.max(1, contentWidth - BODY_INDENT);
 		const theme = this.options.theme;
-		const divider = theme.fg("border", "│");
+		const divider = theme.fg("dim", "│");
 		const row = (content: unknown = "", indent = 0) => {
 			const safeIndent = Math.min(Math.max(0, indent), contentWidth);
 			return [
@@ -164,7 +164,7 @@ export class SidebarComponent implements Component {
 			].join("");
 		};
 
-		const lines: string[] = [row(theme.fg("text", theme.bold("Activity")))];
+		const lines: string[] = [];
 		const hasHint = height >= 2;
 		const panelLimit = height - (hasHint ? 1 : 0);
 		if (height >= 5 && lines.length < panelLimit) lines.push(row());

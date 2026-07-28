@@ -93,7 +93,7 @@ describe("SidebarController", () => {
 			token: "panel-token",
 			panel: {
 				id: "example.activity",
-				title: "Activity",
+				title: "Example panel",
 				connect: () => { connected += 1; return () => { disconnected += 1; }; },
 				render: () => ["active"],
 			},
@@ -109,8 +109,9 @@ describe("SidebarController", () => {
 		assert.ok(sidebarLines.every((line) => visibleWidth(line) === 42));
 		assert.ok(sidebarLines.every((line) => line.startsWith("│")));
 		assert.doesNotMatch(sidebarLines.join("\n"), /[╭╮╰╯─]/);
-		assert.match(sidebarLines.join("\n"), /Activity/);
+		assert.match(sidebarLines.join("\n"), /Example panel/);
 		assert.match(sidebarLines.join("\n"), /active/);
+		assert.doesNotMatch(sidebarLines.join("\n"), /│  Activity/);
 		assert.equal(h.footerWrites(), 0);
 
 		h.shutdown();

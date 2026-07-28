@@ -3,8 +3,7 @@
 A docked, extensible activity sidebar for [Pi](https://pi.dev), rendered as a flat Helm-inspired activity rail.
 
 ```text
-Pi transcript and tools                         │  Activity
-                                                │
+Pi transcript and tools                         │
                                                 │  Subagents
                                                 │    ● reviewer · 18s
                                                 │

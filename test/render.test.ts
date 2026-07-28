@@ -65,14 +65,14 @@ describe("SidebarComponent", () => {
 
 		assert.equal(lines.length, 12);
 		assertMinimalRail(lines, 34);
-		assert.match(lines[0]!, /^│  Activity/);
-		assert.equal(lines[1], `│${" ".repeat(33)}`);
-		assert.match(lines[2]!, /^│  First panel/);
-		assert.match(lines[3]!, /^│    one/);
-		assert.match(lines[4]!, /^│    two/);
-		assert.equal(lines[5], `│${" ".repeat(33)}`);
-		assert.match(lines[6]!, /^│  Second panel/);
-		assert.match(lines[7]!, /^│    three/);
+		assert.equal(lines[0], `│${" ".repeat(33)}`);
+		assert.match(lines[1]!, /^│  First panel/);
+		assert.match(lines[2]!, /^│    one/);
+		assert.match(lines[3]!, /^│    two/);
+		assert.equal(lines[4], `│${" ".repeat(33)}`);
+		assert.match(lines[5]!, /^│  Second panel/);
+		assert.match(lines[6]!, /^│    three/);
+		assert.doesNotMatch(lines.join("\n"), /│  Activity/);
 		assert.match(lines.at(-1)!, /^│  \/sidebar/);
 		assert.deepEqual(
 			contexts.map(({ id, context }) => ({
@@ -81,8 +81,8 @@ describe("SidebarComponent", () => {
 				height: context.height,
 			})),
 			[
-				{ id: "first", width: 28, height: 8 },
-				{ id: "second", width: 28, height: 4 },
+				{ id: "first", width: 28, height: 9 },
+				{ id: "second", width: 28, height: 5 },
 			],
 		);
 		assert.equal(contexts[0]?.context.now, contexts[1]?.context.now);
@@ -164,14 +164,18 @@ describe("SidebarComponent", () => {
 		assertMinimalRail(busyLines, 34);
 
 		const emptyLines = component([], 40, "overlay").render(34);
-		assert.equal(emptyLines.length, 5);
+		assert.equal(emptyLines.length, 4);
 		assertMinimalRail(emptyLines, 34);
 		assert.match(emptyLines.join("\n"), /No active work/);
 	});
 
-	it("keeps exact widths with an ANSI-producing theme", () => {
+	it("keeps exact widths and uses the dim theme color for the rail", () => {
+		const dividerColors: string[] = [];
 		const ansiTheme = {
-			fg: (_color: string, text: string) => `\x1b[38;5;8m${text}\x1b[0m`,
+			fg: (color: string, text: string) => {
+				if (text === "│") dividerColors.push(color);
+				return `\x1b[38;5;8m${text}\x1b[0m`;
+			},
 			bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
 		} as unknown as Theme;
 		const sidebar = new SidebarComponent({
@@ -187,6 +191,7 @@ describe("SidebarComponent", () => {
 		const lines = sidebar.render(32);
 		assert.equal(lines.length, 8);
 		assert.ok(lines.every((line) => visibleWidth(line) === 32));
+		assert.deepEqual([...new Set(dividerColors)], ["dim"]);
 	});
 
 	it("preserves SGR but removes every other terminal control family", () => {
