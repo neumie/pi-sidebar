@@ -48,7 +48,7 @@ When the right rail does not fit and the terminal is at least 32 columns by 32 r
 
 Transient or foreign roots shorter than the viewport are left untouched because their row roles are unknowable. Exact non-capturing overlays at `top-left` and `bottom-left` are independently mounted but mutually gated; only the configured, successfully reserved position renders in a frame.
 
-The shared narrow renderer uses seven content rows and one full-width dim-gray divider: below content in `top`, above content in `bottom`. From 72 columns it packs visible panels into two whitespace-separated columns; below 72 it stacks them in one column. Each panel receives at most two summary body rows.
+The shared narrow renderer uses seven content rows and one full-width dim-gray divider: below content in `top`, above content in `bottom`. It always stacks visible panels in one column using the shelf's full usable width. Each panel receives at most two summary body rows.
 
 ### Overlay fallback
 

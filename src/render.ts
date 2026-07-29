@@ -22,7 +22,8 @@ export interface NarrowSidebarComponentOptions {
 	getPanels(): readonly SidebarPanel[];
 	getTerminalHeight(): number;
 	getRows(): number;
-	getTwoColumnMinWidth(): number;
+	/** @deprecated Narrow shelves always render in one column. */
+	getTwoColumnMinWidth?(): number;
 	getPosition(): NarrowSidebarPosition;
 }
 
@@ -35,7 +36,6 @@ const DIVIDER_WIDTH = 1;
 const LEFT_PADDING = 2;
 const RIGHT_PADDING = 1;
 const BODY_INDENT = 2;
-const SHELF_COLUMN_GAP = 4;
 const ESC = "\x1b";
 const BEL = "\x07";
 const C1_ST = "\x9c";
@@ -287,38 +287,21 @@ export class NarrowSidebarComponent implements Component {
 		const position = this.options.getPosition();
 		const contentRows = Math.max(0, rows - 1);
 		const contentWidth = Math.max(0, width - LEFT_PADDING - RIGHT_PADDING);
-		const twoColumns = width >= normalizedSize(this.options.getTwoColumnMinWidth());
-		const gap = twoColumns ? SHELF_COLUMN_GAP : 0;
-		const firstWidth = twoColumns ? Math.floor((contentWidth - gap) / 2) : contentWidth;
-		const columnWidths = twoColumns
-			? [firstWidth, contentWidth - gap - firstWidth]
-			: [contentWidth];
-		const columns: CellLine[][] = columnWidths.map(() => []);
+		const lines: CellLine[] = [];
 		const now = Date.now();
 		let renderedPanels = 0;
 
 		for (const panel of [...this.options.getPanels()].sort(panelOrder)) {
-			const candidates = columns
-				.map((lines, index) => ({ index, size: lines.length }))
-				.sort((left, right) => left.size - right.size || left.index - right.index);
-			let attempted = false;
-			for (const candidate of candidates) {
-				const target = columns[candidate.index]!;
-				const separatorRows = target.length > 0 ? 1 : 0;
-				const bodyHeight = Math.min(SHELF_PANEL_LINES, contentRows - target.length - separatorRows - 1);
-				if (bodyHeight <= 0) continue;
-				attempted = true;
-				const titleWidth = columnWidths[candidate.index]!;
-				const bodyWidth = Math.max(1, titleWidth - BODY_INDENT);
-				const rendered = renderPanel(panel, titleWidth, bodyWidth, bodyHeight, theme, now);
-				if (rendered.body.length === 0) break;
-				if (separatorRows > 0) target.push({ content: "" });
-				target.push({ content: theme.fg("muted", theme.bold(rendered.title)) });
-				for (const bodyLine of rendered.body) target.push({ content: bodyLine, indent: BODY_INDENT });
-				renderedPanels += 1;
-				break;
-			}
-			if (!attempted) break;
+			const separatorRows = lines.length > 0 ? 1 : 0;
+			const bodyHeight = Math.min(SHELF_PANEL_LINES, contentRows - lines.length - separatorRows - 1);
+			if (bodyHeight <= 0) break;
+			const bodyWidth = Math.max(1, contentWidth - BODY_INDENT);
+			const rendered = renderPanel(panel, contentWidth, bodyWidth, bodyHeight, theme, now);
+			if (rendered.body.length === 0) continue;
+			if (separatorRows > 0) lines.push({ content: "" });
+			lines.push({ content: theme.fg("muted", theme.bold(rendered.title)) });
+			for (const bodyLine of rendered.body) lines.push({ content: bodyLine, indent: BODY_INDENT });
+			renderedPanels += 1;
 		}
 
 		const divider = theme.fg("dim", "─".repeat(width));
@@ -330,28 +313,22 @@ export class NarrowSidebarComponent implements Component {
 			const stateRow = position === "bottom"
 				? Math.ceil(availablePadding / 2)
 				: Math.floor(availablePadding / 2);
-			const centered = (value: unknown) => {
-				const text = bounded(value, contentWidth);
-				const left = Math.max(0, Math.floor((contentWidth - visibleWidth(text)) / 2));
-				return bounded(`${" ".repeat(left)}${text}`, contentWidth, true);
-			};
 			for (let rowIndex = 0; rowIndex < contentRows; rowIndex += 1) {
 				let content = "";
-				if (rowIndex === stateRow) content = centered(theme.fg("muted", theme.bold("No active work")));
+				if (rowIndex === stateRow) {
+					content = centered(theme.fg("muted", theme.bold("No active work")), contentWidth);
+				}
 				if (rowIndex === stateRow + 1) {
-					content = centered(theme.fg("dim", "Start a subagent or background job"));
+					content = centered(theme.fg("dim", "Start a subagent or background job"), contentWidth);
 				}
 				output.push(contentRow(content));
 			}
 		} else {
-			const renderCell = (cell: CellLine | undefined, columnWidth: number) => {
-				const indent = Math.min(Math.max(0, cell?.indent ?? 0), columnWidth);
-				return `${" ".repeat(indent)}${bounded(cell?.content ?? "", columnWidth - indent, true)}`;
-			};
 			for (let rowIndex = 0; rowIndex < contentRows; rowIndex += 1) {
-				const cells = columnWidths.map((columnWidth, columnIndex) =>
-					renderCell(columns[columnIndex]?.[rowIndex], columnWidth));
-				output.push(contentRow(cells.join(" ".repeat(gap))));
+				const cell = lines[rowIndex];
+				const indent = Math.min(Math.max(0, cell?.indent ?? 0), contentWidth);
+				const content = `${" ".repeat(indent)}${bounded(cell?.content ?? "", contentWidth - indent, true)}`;
+				output.push(contentRow(content));
 			}
 		}
 		if (position === "top") output.push(divider);

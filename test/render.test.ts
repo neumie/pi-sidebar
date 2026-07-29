@@ -233,7 +233,6 @@ describe("SidebarComponent", () => {
 describe("NarrowSidebarComponent", () => {
 	function narrowComponent(
 		panels: SidebarPanel[],
-		twoColumnMinWidth = 72,
 		position: NarrowSidebarPosition = "top",
 		testTheme: Theme = theme,
 	): NarrowSidebarComponent {
@@ -242,12 +241,11 @@ describe("NarrowSidebarComponent", () => {
 			getPanels: () => panels,
 			getTerminalHeight: () => 40,
 			getRows: () => 8,
-			getTwoColumnMinWidth: () => twoColumnMinWidth,
 			getPosition: () => position,
 		});
 	}
 
-	it("uses two columns when the narrow shelf is wide enough", () => {
+	it("stacks panels in one column even when the narrow shelf is wide", () => {
 		const contexts: Array<{ id: string; context: SidebarPanelRenderContext }> = [];
 		const panels: SidebarPanel[] = [
 			{
@@ -272,14 +270,18 @@ describe("NarrowSidebarComponent", () => {
 		const lines = narrowComponent(panels).render(80);
 		assert.equal(lines.length, 8);
 		assertNarrowShelf(lines, 80, "top");
-		assert.match(lines[0]!, /Subagents.*Background jobs/);
-		assert.match(lines[1]!, /● reviewer.*● Typecheck/);
-		assert.match(lines[2]!, /2 tools · 18s.*1 running/);
+		assert.match(lines[0]!, /^  Subagents/);
+		assert.match(lines[1]!, /^    ● reviewer/);
+		assert.match(lines[2]!, /^    2 tools · 18s/);
+		assert.equal(lines[3], " ".repeat(80));
+		assert.match(lines[4]!, /^  Background jobs/);
+		assert.match(lines[5]!, /^    ● Typecheck/);
+		assert.match(lines[6]!, /^    1 running/);
 		assert.deepEqual(
 			contexts.map(({ id, context }) => ({ id, width: context.width, height: context.height })),
 			[
-				{ id: "subagents", width: 34, height: 2 },
-				{ id: "jobs", width: 35, height: 2 },
+				{ id: "subagents", width: 75, height: 2 },
+				{ id: "jobs", width: 75, height: 2 },
 			],
 		);
 		assert.equal(contexts[0]?.context.now, contexts[1]?.context.now);
@@ -304,24 +306,24 @@ describe("NarrowSidebarComponent", () => {
 		const panels: SidebarPanel[] = [
 			{ id: "example.subagents", title: "Subagents", render: () => ["● reviewer"] },
 		];
-		const lines = narrowComponent(panels, 72, "bottom").render(60);
+		const lines = narrowComponent(panels, "bottom").render(60);
 		assert.equal(lines.length, 8);
 		assertNarrowShelf(lines, 60, "bottom");
 		assert.match(lines[1]!, /^  Subagents/);
 		assert.match(lines[2]!, /^    ● reviewer/);
 	});
 
-	it("switches from one to two columns exactly at the configured width", () => {
+	it("does not change layout at the former two-column threshold", () => {
 		const panels: SidebarPanel[] = [
 			{ id: "one", title: "First panel", render: () => ["first", "detail"] },
 			{ id: "two", title: "Second panel", render: () => ["second", "detail"] },
 		];
-		const oneColumn = narrowComponent(panels).render(71);
-		assert.match(oneColumn[0]!, /First panel/);
-		assert.doesNotMatch(oneColumn[0]!, /Second panel/);
-		assert.match(oneColumn[4]!, /Second panel/);
-		const twoColumns = narrowComponent(panels).render(72);
-		assert.match(twoColumns[0]!, /First panel.*Second panel/);
+		for (const width of [71, 72, 120]) {
+			const lines = narrowComponent(panels).render(width);
+			assert.match(lines[0]!, /First panel/);
+			assert.doesNotMatch(lines[0]!, /Second panel/);
+			assert.match(lines[4]!, /Second panel/);
+		}
 	});
 
 	it("centers an empty directive state beside either structural divider", () => {
@@ -332,7 +334,7 @@ describe("NarrowSidebarComponent", () => {
 		assert.match(topLines[3]!, /Start a subagent or background job/);
 		assert.doesNotMatch(topLines.slice(0, 2).join("\n"), /No active work/);
 
-		const bottomLines = narrowComponent([], 72, "bottom").render(60);
+		const bottomLines = narrowComponent([], "bottom").render(60);
 		assert.equal(bottomLines.length, 8);
 		assertNarrowShelf(bottomLines, 60, "bottom");
 		assert.ok(bottomLines.slice(1, 4).every((line) => line.trim() === ""));
@@ -350,8 +352,8 @@ describe("NarrowSidebarComponent", () => {
 			},
 			bold: (text: string) => text,
 		} as unknown as Theme;
-		assertNarrowShelf(narrowComponent([], 72, "top", ansiTheme).render(60), 60, "top");
-		assertNarrowShelf(narrowComponent([], 72, "bottom", ansiTheme).render(60), 60, "bottom");
+		assertNarrowShelf(narrowComponent([], "top", ansiTheme).render(60), 60, "top");
+		assertNarrowShelf(narrowComponent([], "bottom", ansiTheme).render(60), 60, "bottom");
 		assert.deepEqual(dividerColors, ["dim", "dim"]);
 	});
 });

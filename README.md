@@ -78,13 +78,12 @@ Runtime command changes are session-scoped. Environment defaults:
 | `PI_SIDEBAR_NARROW_ROWS` | `8` | Rows reserved by the narrow shelf. |
 | `PI_SIDEBAR_NARROW_MIN_WIDTH` | `32` | Minimum terminal width for narrow mode. |
 | `PI_SIDEBAR_NARROW_MIN_HEIGHT` | `32` | Minimum terminal height for narrow mode. |
-| `PI_SIDEBAR_NARROW_TWO_COLUMN_WIDTH` | `72` | Switch narrow mode from one to two columns. |
 
-The former `PI_SIDEBAR_TOP_*` geometry variables remain accepted as fallback aliases when their corresponding `PI_SIDEBAR_NARROW_*` variable is unset.
+The former `PI_SIDEBAR_TOP_*` geometry variables remain accepted as fallback aliases when their corresponding remaining `PI_SIDEBAR_NARROW_*` variable is unset.
 
-In `auto` and `dock` modes, the right rail wins whenever the terminal can fit the configured main width, gutter, and sidebar width. Otherwise a terminal at least 32 columns wide and 32 rows tall gets an eight-row narrow shelf: two columns from 72 columns, one column below that. By default its divider and content sit below Pi's footer; `narrow top` instead reserves the first eight viewport rows. Smaller terminals hide the activity surface.
+In `auto` and `dock` modes, the right rail wins whenever the terminal can fit the configured main width, gutter, and sidebar width. Otherwise a terminal at least 32 columns wide and 32 rows tall gets an eight-row, single-column narrow shelf. By default its divider and content sit below Pi's footer; `narrow top` instead reserves the first eight viewport rows. Smaller terminals hide the activity surface.
 
-The configured right-rail width includes the divider and internal padding. Right-rail providers receive `configured width - 6` body columns; narrow-shelf providers receive the usable width of their responsive column. Provider height always excludes host-owned headings and section spacing.
+The configured right-rail width includes the divider and internal padding. Right-rail providers receive `configured width - 6` body columns; narrow-shelf providers receive the shelf's full usable width. Provider height always excludes host-owned headings and section spacing.
 
 ## Built-in integrations
 

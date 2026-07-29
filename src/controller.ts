@@ -5,10 +5,7 @@ import type {
 	Theme,
 } from "@earendil-works/pi-coding-agent";
 import type { Component, TUI } from "@earendil-works/pi-tui";
-import {
-	assertSidebarPanel,
-	type SidebarPanel,
-} from "./api.ts";
+import { assertSidebarPanel } from "./api.ts";
 import {
 	SIDEBAR_PROTOCOL_VERSION,
 	SIDEBAR_READY_EVENT,
@@ -58,7 +55,6 @@ interface SidebarSettings {
 	narrowRows: number;
 	minNarrowWidth: number;
 	minNarrowHeight: number;
-	narrowTwoColumnWidth: number;
 }
 
 function integerEnv(name: string, fallback: number, minimum: number, maximum: number): number {
@@ -106,13 +102,6 @@ function initialSettings(): SidebarSettings {
 			32,
 			narrowRows + 8,
 			160,
-		),
-		narrowTwoColumnWidth: aliasedIntegerEnv(
-			"PI_SIDEBAR_NARROW_TWO_COLUMN_WIDTH",
-			"PI_SIDEBAR_TOP_TWO_COLUMN_WIDTH",
-			72,
-			48,
-			200,
 		),
 	};
 }
@@ -235,7 +224,6 @@ export class SidebarController {
 				getPanels,
 				getTerminalHeight: () => tui.terminal.rows,
 				getRows: () => this.settings.narrowRows,
-				getTwoColumnMinWidth: () => this.settings.narrowTwoColumnWidth,
 			};
 			const topComponent = new NarrowSidebarComponent({
 				...narrowOptions,
