@@ -93,10 +93,11 @@ describe("SidebarComponent", () => {
 				id,
 				width: context.width,
 				height: context.height,
+				surface: context.surface,
 			})),
 			[
-				{ id: "first", width: 28, height: 9 },
-				{ id: "second", width: 28, height: 5 },
+				{ id: "first", width: 28, height: 9, surface: "right" },
+				{ id: "second", width: 28, height: 5, surface: "right" },
 			],
 		);
 		assert.equal(contexts[0]?.context.now, contexts[1]?.context.now);
@@ -282,10 +283,10 @@ describe("NarrowSidebarComponent", () => {
 		assert.match(lines[4]!, /^    ● Typecheck/);
 		assert.match(lines[5]!, /^    1 running/);
 		assert.deepEqual(
-			contexts.map(({ id, context }) => ({ id, width: context.width, height: context.height })),
+			contexts.map(({ id, context }) => ({ id, width: context.width, height: context.height, surface: context.surface })),
 			[
-				{ id: "subagents", width: 75, height: 2 },
-				{ id: "jobs", width: 75, height: 2 },
+				{ id: "subagents", width: 75, height: 5, surface: "narrow" },
+				{ id: "jobs", width: 75, height: 2, surface: "narrow" },
 			],
 		);
 		assert.equal(contexts[0]?.context.now, contexts[1]?.context.now);

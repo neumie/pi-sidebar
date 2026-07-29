@@ -27,6 +27,7 @@ import {
 } from "./surface.ts";
 
 const WIDGET_KEY = "@neumie/pi-sidebar:bootstrap";
+const NARROW_WIDGET_KEY = "@neumie/pi-sidebar:narrow";
 const HOST_SLOT = Symbol.for("@neumie/pi-sidebar:host:v1");
 
 type HostSlot = { id: string; dispose(): void };
@@ -41,7 +42,7 @@ interface SessionRuntime {
 	generation: number;
 	ctx: ExtensionContext;
 	surface?: SidebarSurface;
-	components?: [SidebarComponent, NarrowSidebarComponent, NarrowSidebarComponent];
+	components?: Component[];
 	tick?: ReturnType<typeof setInterval>;
 }
 
@@ -57,9 +58,16 @@ interface SidebarSettings {
 	minNarrowHeight: number;
 }
 
-function integerEnv(name: string, fallback: number, minimum: number, maximum: number): number {
+function integerEnv(
+	name: string,
+	fallback: number,
+	minimum: number,
+	maximum: number,
+): number {
 	const parsed = Number.parseInt(process.env[name] ?? "", 10);
-	return Number.isFinite(parsed) ? Math.min(maximum, Math.max(minimum, parsed)) : fallback;
+	return Number.isFinite(parsed)
+		? Math.min(maximum, Math.max(minimum, parsed))
+		: fallback;
 }
 
 function aliasedIntegerEnv(
@@ -76,11 +84,17 @@ function aliasedIntegerEnv(
 
 function initialSettings(): SidebarSettings {
 	const rawMode = process.env.PI_SIDEBAR_MODE;
-	const mode: SidebarLayoutMode = rawMode === "dock" || rawMode === "overlay" ? rawMode : "auto";
-	const narrowPosition: NarrowSidebarPosition = process.env.PI_SIDEBAR_NARROW_POSITION === "top"
-		? "top"
-		: "bottom";
-	const narrowRows = aliasedIntegerEnv("PI_SIDEBAR_NARROW_ROWS", "PI_SIDEBAR_TOP_ROWS", 7, 4, 16);
+	const mode: SidebarLayoutMode =
+		rawMode === "dock" || rawMode === "overlay" ? rawMode : "auto";
+	const narrowPosition: NarrowSidebarPosition =
+		process.env.PI_SIDEBAR_NARROW_POSITION === "top" ? "top" : "bottom";
+	const narrowRows = aliasedIntegerEnv(
+		"PI_SIDEBAR_NARROW_ROWS",
+		"PI_SIDEBAR_TOP_ROWS",
+		7,
+		4,
+		16,
+	);
 	return {
 		enabled: process.env.PI_SIDEBAR_ENABLED !== "0",
 		mode,
@@ -106,11 +120,37 @@ function initialSettings(): SidebarSettings {
 	};
 }
 
+class AdaptiveNarrowSidebarComponent implements Component {
+	constructor(
+		private readonly narrow: NarrowSidebarComponent,
+		private readonly tui: TUI,
+		private readonly settings: SidebarSettings,
+	) {}
+	invalidate(): void {
+		this.narrow.invalidate();
+	}
+	render(width: number): string[] {
+		const wide =
+			this.tui.terminal.columns >=
+			this.settings.minMainWidth + this.settings.gutter + this.settings.width;
+		if (
+			this.settings.mode === "overlay" ||
+			wide ||
+			width < this.settings.minNarrowWidth ||
+			this.tui.terminal.rows < this.settings.minNarrowHeight
+		)
+			return [];
+		return this.narrow.render(width).slice(0, this.settings.narrowRows);
+	}
+}
+
 class BootstrapComponent implements Component {
 	private disposed = false;
 
 	constructor(private readonly onDispose: () => void) {}
-	render(): string[] { return []; }
+	render(): string[] {
+		return [];
+	}
 	invalidate(): void {}
 	dispose(): void {
 		if (this.disposed) return;
@@ -137,8 +177,12 @@ export class SidebarController {
 		globals[HOST_SLOT] = { id: this.hostId, dispose: () => this.dispose() };
 
 		this.protocolUnsubscribes.push(
-			this.pi.events.on(SIDEBAR_REGISTER_EVENT, (payload) => this.registerPanel(payload)),
-			this.pi.events.on(SIDEBAR_UNREGISTER_EVENT, (payload) => this.unregisterPanel(payload)),
+			this.pi.events.on(SIDEBAR_REGISTER_EVENT, (payload) =>
+				this.registerPanel(payload),
+			),
+			this.pi.events.on(SIDEBAR_UNREGISTER_EVENT, (payload) =>
+				this.unregisterPanel(payload),
+			),
 		);
 		this.pi.on("session_start", (_event, ctx) => this.startSession(ctx));
 		this.pi.on("session_shutdown", () => this.dispose());
@@ -152,33 +196,48 @@ export class SidebarController {
 				const parts = args.trim() ? args.trim().split(/\s+/) : [];
 				const action = parts[0] ?? "toggle";
 				const value = parts[1];
-				if (action === "toggle" && parts.length <= 1) this.settings.enabled = !this.settings.enabled;
-				else if (action === "on" && parts.length === 1) this.settings.enabled = true;
-				else if (action === "off" && parts.length === 1) this.settings.enabled = false;
+				if (action === "toggle" && parts.length <= 1)
+					this.settings.enabled = !this.settings.enabled;
+				else if (action === "on" && parts.length === 1)
+					this.settings.enabled = true;
+				else if (action === "off" && parts.length === 1)
+					this.settings.enabled = false;
 				else if (action === "status" && parts.length === 1) {
 					ctx.ui.notify(this.statusLine(), "info");
 					return;
 				} else if (action === "width" && parts.length === 2) {
 					const width = /^\d+$/.test(value ?? "") ? Number(value) : Number.NaN;
 					if (!Number.isInteger(width) || width < 24 || width > 80) {
-						ctx.ui.notify("Sidebar width must be an integer from 24 to 80.", "warning");
+						ctx.ui.notify(
+							"Sidebar width must be an integer from 24 to 80.",
+							"warning",
+						);
 						return;
 					}
 					this.settings.width = width;
 				} else if (action === "mode" && parts.length === 2) {
 					if (value !== "auto" && value !== "dock" && value !== "overlay") {
-						ctx.ui.notify("Sidebar mode must be auto, dock, or overlay.", "warning");
+						ctx.ui.notify(
+							"Sidebar mode must be auto, dock, or overlay.",
+							"warning",
+						);
 						return;
 					}
 					this.settings.mode = value;
 				} else if (action === "narrow" && parts.length === 2) {
 					if (value !== "top" && value !== "bottom") {
-						ctx.ui.notify("Sidebar narrow position must be top or bottom.", "warning");
+						ctx.ui.notify(
+							"Sidebar narrow position must be top or bottom.",
+							"warning",
+						);
 						return;
 					}
 					this.settings.narrowPosition = value;
 				} else {
-					ctx.ui.notify("Usage: /sidebar [on|off|toggle|status|width 24-80|mode auto|dock|overlay|narrow top|bottom]", "warning");
+					ctx.ui.notify(
+						"Usage: /sidebar [on|off|toggle|status|width 24-80|mode auto|dock|overlay|narrow top|bottom]",
+						"warning",
+					);
 					return;
 				}
 				this.remount();
@@ -188,7 +247,9 @@ export class SidebarController {
 	}
 
 	private statusLine(): string {
-		const backend = this.session?.surface?.backend() ?? (this.settings.enabled ? "not mounted" : "hidden");
+		const backend =
+			this.session?.surface?.backend() ??
+			(this.settings.enabled ? "not mounted" : "hidden");
 		return `Sidebar ${this.settings.enabled ? "on" : "off"} · mode ${this.settings.mode} · backend ${backend} · width ${this.settings.width} · narrow ${this.settings.narrowPosition}/${this.settings.narrowRows} rows · ${this.registrations.size} panels`;
 	}
 
@@ -197,7 +258,8 @@ export class SidebarController {
 		this.stopSession();
 		const runtime: SessionRuntime = { generation: ++this.generation, ctx };
 		this.session = runtime;
-		for (const registration of this.registrations.values()) this.connectPanel(registration, runtime);
+		for (const registration of this.registrations.values())
+			this.connectPanel(registration, runtime);
 		if (this.settings.enabled) this.mount(runtime);
 		runtime.tick = setInterval(() => this.requestRender(), 1_000);
 		runtime.tick.unref?.();
@@ -210,57 +272,78 @@ export class SidebarController {
 
 	private mount(runtime: SessionRuntime): void {
 		if (!this.isCurrent(runtime)) return;
-		runtime.ctx.ui.setWidget(WIDGET_KEY, (tui, theme) => {
-			if (!this.isCurrent(runtime)) return new BootstrapComponent(() => undefined);
-			const getPanels = () => [...this.registrations.values()].map((entry) => entry.panel);
-			const rightComponent = new SidebarComponent({
-				theme: theme as Theme,
-				getPanels,
-				getTerminalHeight: () => tui.terminal.rows,
-				getPresentation: () => "overlay",
-			});
-			const narrowOptions = {
-				theme: theme as Theme,
-				getPanels,
-				getTerminalHeight: () => tui.terminal.rows,
-				getRows: () => this.settings.narrowRows,
-			};
-			const topComponent = new NarrowSidebarComponent({
-				...narrowOptions,
-				getPosition: () => "top",
-			});
-			const bottomComponent = new NarrowSidebarComponent({
-				...narrowOptions,
-				getPosition: () => "bottom",
-			});
-			runtime.components = [rightComponent, topComponent, bottomComponent];
-			try {
-				runtime.surface = createSidebarSurface(
+		const placement =
+			this.settings.narrowPosition === "bottom" ? "belowEditor" : "aboveEditor";
+		runtime.ctx.ui.setWidget(
+			NARROW_WIDGET_KEY,
+			(tui, theme) => {
+				const narrow = new NarrowSidebarComponent({
+					theme: theme as Theme,
+					getPanels: () =>
+						[...this.registrations.values()].map((entry) => entry.panel),
+					getTerminalHeight: () => tui.terminal.rows,
+					getRows: () => this.settings.narrowRows,
+					getPosition: () => this.settings.narrowPosition,
+				});
+				const component = new AdaptiveNarrowSidebarComponent(
+					narrow,
 					tui as TUI,
-					{ right: rightComponent, top: topComponent, bottom: bottomComponent },
-					{
-						mode: this.settings.mode,
-						width: this.settings.width,
-						gutter: this.settings.gutter,
-						minMainWidth: this.settings.minMainWidth,
-						narrowPosition: this.settings.narrowPosition,
-						narrowRows: this.settings.narrowRows,
-						minNarrowWidth: this.settings.minNarrowWidth,
-						minNarrowHeight: this.settings.minNarrowHeight,
-						onWarning: (message) => runtime.ctx.ui.notify(message, "warning"),
-					},
+					this.settings,
 				);
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				runtime.ctx.ui.notify(`Sidebar unavailable: ${message}`, "warning");
-			}
-			return new BootstrapComponent(() => {
-				if (!this.isCurrent(runtime)) return;
-				runtime.surface?.dispose();
-				runtime.surface = undefined;
-				runtime.components = undefined;
-			});
-		}, { placement: "belowEditor" });
+				runtime.components = [...(runtime.components ?? []), component];
+				return component;
+			},
+			{ placement },
+		);
+		runtime.ctx.ui.setWidget(
+			WIDGET_KEY,
+			(tui, theme) => {
+				if (!this.isCurrent(runtime))
+					return new BootstrapComponent(() => undefined);
+				const getPanels = () =>
+					[...this.registrations.values()].map((entry) => entry.panel);
+				const rightComponent = new SidebarComponent({
+					theme: theme as Theme,
+					getPanels,
+					getTerminalHeight: () => tui.terminal.rows,
+					getPresentation: () => "overlay",
+				});
+				runtime.components = [...(runtime.components ?? []), rightComponent];
+				try {
+					runtime.surface = createSidebarSurface(
+						tui as TUI,
+						{ right: rightComponent },
+						{
+							mode: this.settings.mode,
+							width: this.settings.width,
+							gutter: this.settings.gutter,
+							minMainWidth: this.settings.minMainWidth,
+							narrowPosition: this.settings.narrowPosition,
+							narrowRows: this.settings.narrowRows,
+							minNarrowWidth: this.settings.minNarrowWidth,
+							minNarrowHeight: this.settings.minNarrowHeight,
+							onWarning: (message) => runtime.ctx.ui.notify(message, "warning"),
+						},
+					);
+				} catch (error) {
+					const message =
+						error instanceof Error ? error.message : String(error);
+					runtime.ctx.ui.notify(`Sidebar unavailable: ${message}`, "warning");
+				}
+				return new BootstrapComponent(() => {
+					if (!this.isCurrent(runtime)) return;
+					try {
+						runtime.ctx.ui.setWidget(NARROW_WIDGET_KEY, undefined);
+					} catch {
+						/* stale teardown */
+					}
+					runtime.surface?.dispose();
+					runtime.surface = undefined;
+					runtime.components = undefined;
+				});
+			},
+			{ placement: "belowEditor" },
+		);
 	}
 
 	private remount(): void {
@@ -268,6 +351,7 @@ export class SidebarController {
 		if (!runtime) return;
 		try {
 			runtime.ctx.ui.setWidget(WIDGET_KEY, undefined);
+			runtime.ctx.ui.setWidget(NARROW_WIDGET_KEY, undefined);
 		} catch {
 			// A replacement session can stale the old UI context during teardown.
 		}
@@ -282,7 +366,9 @@ export class SidebarController {
 		try {
 			assertSidebarPanel(payload.panel);
 		} catch (error) {
-			this.report(`Rejected sidebar panel: ${error instanceof Error ? error.message : String(error)}`);
+			this.report(
+				`Rejected sidebar panel: ${error instanceof Error ? error.message : String(error)}`,
+			);
 			return;
 		}
 		const current = this.registrations.get(payload.panel.id);
@@ -303,13 +389,17 @@ export class SidebarController {
 		this.requestRender();
 	}
 
-	private connectPanel(registration: Registration, runtime: SessionRuntime): void {
+	private connectPanel(
+		registration: Registration,
+		runtime: SessionRuntime,
+	): void {
 		this.disconnectPanel(registration);
 		if (!registration.panel.connect || !this.isCurrent(runtime)) return;
 		const controller = new AbortController();
 		registration.connectionAbort = controller;
 		const invalidate = () => {
-			if (this.isCurrent(runtime) && !controller.signal.aborted) this.requestRender();
+			if (this.isCurrent(runtime) && !controller.signal.aborted)
+				this.requestRender();
 		};
 		try {
 			const connected = registration.panel.connect({
@@ -318,13 +408,21 @@ export class SidebarController {
 				signal: controller.signal,
 				invalidate,
 			});
-			void Promise.resolve(connected).then((dispose) => {
-				if (typeof dispose !== "function") return;
-				if (!this.isCurrent(runtime) || controller.signal.aborted) dispose();
-				else registration.connectionDispose = dispose;
-			}).catch((error) => this.report(`Panel ${registration.panel.id} failed to connect: ${String(error)}`));
+			void Promise.resolve(connected)
+				.then((dispose) => {
+					if (typeof dispose !== "function") return;
+					if (!this.isCurrent(runtime) || controller.signal.aborted) dispose();
+					else registration.connectionDispose = dispose;
+				})
+				.catch((error) =>
+					this.report(
+						`Panel ${registration.panel.id} failed to connect: ${String(error)}`,
+					),
+				);
 		} catch (error) {
-			this.report(`Panel ${registration.panel.id} failed to connect: ${String(error)}`);
+			this.report(
+				`Panel ${registration.panel.id} failed to connect: ${String(error)}`,
+			);
 		}
 	}
 
@@ -334,7 +432,9 @@ export class SidebarController {
 		try {
 			registration.connectionDispose?.();
 		} catch (error) {
-			this.report(`Panel ${registration.panel.id} failed to disconnect: ${String(error)}`);
+			this.report(
+				`Panel ${registration.panel.id} failed to disconnect: ${String(error)}`,
+			);
 		}
 		registration.connectionDispose = undefined;
 	}
@@ -344,7 +444,8 @@ export class SidebarController {
 		this.renderQueued = true;
 		queueMicrotask(() => {
 			this.renderQueued = false;
-			for (const component of this.session?.components ?? []) component.invalidate();
+			for (const component of this.session?.components ?? [])
+				component.invalidate();
 			this.session?.surface?.requestRender();
 		});
 	}
@@ -354,9 +455,11 @@ export class SidebarController {
 		if (!runtime) return;
 		this.session = undefined;
 		if (runtime.tick) clearInterval(runtime.tick);
-		for (const registration of this.registrations.values()) this.disconnectPanel(registration);
+		for (const registration of this.registrations.values())
+			this.disconnectPanel(registration);
 		try {
 			runtime.ctx.ui.setWidget(WIDGET_KEY, undefined);
+			runtime.ctx.ui.setWidget(NARROW_WIDGET_KEY, undefined);
 		} catch {
 			// Best effort for stale replacement-session contexts.
 		}
@@ -367,8 +470,10 @@ export class SidebarController {
 		if (this.disposed) return;
 		this.disposed = true;
 		this.stopSession();
-		for (const unsubscribe of this.protocolUnsubscribes.splice(0)) unsubscribe();
-		for (const registration of this.registrations.values()) this.disconnectPanel(registration);
+		for (const unsubscribe of this.protocolUnsubscribes.splice(0))
+			unsubscribe();
+		for (const registration of this.registrations.values())
+			this.disconnectPanel(registration);
 		this.registrations.clear();
 		const globals = globalThis as HostGlobal;
 		if (globals[HOST_SLOT]?.id === this.hostId) delete globals[HOST_SLOT];
@@ -380,6 +485,10 @@ export class SidebarController {
 	}
 
 	private isCurrent(runtime: SessionRuntime): boolean {
-		return !this.disposed && this.session === runtime && runtime.generation === this.generation;
+		return (
+			!this.disposed &&
+			this.session === runtime &&
+			runtime.generation === this.generation
+		);
 	}
 }

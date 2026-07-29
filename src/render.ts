@@ -28,7 +28,7 @@ export interface NarrowSidebarComponentOptions {
 }
 
 const MAX_PANEL_LINES = 24;
-const SHELF_PANEL_LINES = 2;
+const SHELF_PANEL_LINES = 5;
 const MAX_SOURCE_CHARS = 4_096;
 const MIN_RENDER_WIDTH = 12;
 const OVERLAY_MAX_HEIGHT = 26;
@@ -157,6 +157,7 @@ function renderPanel(
 	titleWidth: number,
 	bodyWidth: number,
 	bodyHeight: number,
+	surface: "right" | "narrow",
 	theme: Theme,
 	now: number,
 ): RenderedPanel {
@@ -164,7 +165,7 @@ function renderPanel(
 	let body: string[] = [];
 	try {
 		title = bounded(panel.title, titleWidth) || title;
-		const rendered = panel.render({ width: bodyWidth, height: bodyHeight, theme, now });
+		const rendered = panel.render({ width: bodyWidth, height: bodyHeight, surface, theme, now });
 		if (!Array.isArray(rendered)) throw new TypeError("panel render must return an array of lines");
 		const lineCount = Math.min(rendered.length, bodyHeight);
 		for (let index = 0; index < lineCount; index += 1) {
@@ -235,6 +236,7 @@ export class SidebarComponent implements Component {
 				contentWidth,
 				bodyWidth,
 				remainingBodyRows,
+				"right",
 				theme,
 				now,
 			);
@@ -296,7 +298,7 @@ export class NarrowSidebarComponent implements Component {
 			const bodyHeight = Math.min(SHELF_PANEL_LINES, availableRows - 1);
 			if (bodyHeight <= 0) break;
 			const bodyWidth = Math.max(1, contentWidth - BODY_INDENT);
-			const rendered = renderPanel(panel, contentWidth, bodyWidth, bodyHeight, theme, now);
+			const rendered = renderPanel(panel, contentWidth, bodyWidth, bodyHeight, "narrow", theme, now);
 			if (rendered.body.length === 0) continue;
 			const panelRows = rendered.body.length + 1;
 			if (lines.length > 0 && availableRows > panelRows) lines.push({ content: "" });

@@ -25,6 +25,8 @@ export interface SidebarPanelRenderContext {
 	readonly width: number;
 	/** Remaining body rows, excluding host-owned headings and section spacing. */
 	readonly height: number;
+	/** Host surface; absent only for older third-party hosts. */
+	readonly surface?: "right" | "narrow";
 	readonly theme: Theme;
 	readonly now: number;
 }

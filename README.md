@@ -59,10 +59,10 @@ Pi packages execute with your full system permissions. Review extension source b
 /sidebar status                  report mode, backend, width, and panel count
 /sidebar width 42                set runtime width (24–80 columns)
 /sidebar mode auto               choose a safe responsive layout
-/sidebar mode dock               force reserved right/narrow layout
-/sidebar mode overlay            use only Pi's supported wide overlay behavior
-/sidebar narrow bottom           dock narrow mode below Pi's footer (default)
-/sidebar narrow top              place narrow mode at absolute row zero
+/sidebar mode dock               reserve the right rail when it fits
+/sidebar mode overlay            use Pi's supported wide overlay behavior
+/sidebar narrow bottom           place narrow mode below the editor (default)
+/sidebar narrow top              place narrow mode above the editor
 ```
 
 Runtime command changes are session-scoped. Environment defaults:
@@ -74,14 +74,14 @@ Runtime command changes are session-scoped. Environment defaults:
 | `PI_SIDEBAR_WIDTH` | `42` | Sidebar columns. |
 | `PI_SIDEBAR_GUTTER` | `1` | Blank columns between Pi and the sidebar. |
 | `PI_SIDEBAR_MIN_MAIN_WIDTH` | `64` | Minimum columns preserved beside the right rail. |
-| `PI_SIDEBAR_NARROW_POSITION` | `bottom` | `bottom` below the footer, or `top` at row zero. |
-| `PI_SIDEBAR_NARROW_ROWS` | `7` | Rows reserved by the narrow shelf. |
+| `PI_SIDEBAR_NARROW_POSITION` | `bottom` | `bottom` below the editor, or `top` above it. |
+| `PI_SIDEBAR_NARROW_ROWS` | `7` | Rows rendered by the narrow shelf. |
 | `PI_SIDEBAR_NARROW_MIN_WIDTH` | `32` | Minimum terminal width for narrow mode. |
 | `PI_SIDEBAR_NARROW_MIN_HEIGHT` | `32` | Minimum terminal height for narrow mode. |
 
 The former `PI_SIDEBAR_TOP_*` geometry variables remain accepted as fallback aliases when their corresponding remaining `PI_SIDEBAR_NARROW_*` variable is unset.
 
-In `auto` and `dock` modes, the right rail wins whenever the terminal can fit the configured main width, gutter, and sidebar width. Otherwise a terminal at least 32 columns wide and 32 rows tall gets a seven-row, single-column narrow shelf. By default its divider and content sit below Pi's footer; `narrow top` instead reserves the first seven viewport rows. Smaller terminals hide the activity surface.
+In `auto` and `dock` modes, the right rail wins whenever the terminal can fit the configured main width, gutter, and sidebar width. Otherwise a terminal at least 32 columns wide and 32 rows tall gets a seven-row, single-column narrow shelf through Pi's documented widget API. `narrow bottom` places it below the editor and above the footer; `narrow top` places it above the editor. Smaller terminals hide the activity surface.
 
 The configured right-rail width includes the divider and internal padding. Right-rail providers receive `configured width - 6` body columns; narrow-shelf providers receive the shelf's full usable width. Provider height always excludes host-owned headings and section spacing.
 
@@ -91,7 +91,7 @@ The configured right-rail width includes the divider and internal padding. Right
 
 The adapter listens for `subagents:rpc:v1:ready`, sends versioned `ping` and `status` requests, and uses async lifecycle events for immediate refresh. It polls only after the RPC is available. Missing or incompatible subagent installations simply hide the panel.
 
-Foreground `subagent` tool calls are shown immediately from Pi's public tool lifecycle. Async status is rendered from the public RPC response; no private modules are imported.
+Foreground `subagent` tool calls are shown immediately from Pi's public tool lifecycle. When the peer advertises `fleetStatus` v1, each active child shows its role and elapsed time, footer-style model/effort and `↑input ↓output` usage, plus its caller-facing goal. The bounded RPC snapshot carries an omitted count so narrow surfaces can report hidden children without exposing run IDs. Older peers degrade to an ID-free active count; no private modules are imported.
 
 ### pi-background-jobs
 
@@ -147,7 +147,7 @@ Panel rules:
 - `id` is globally unique and stable.
 - `title` is short and sentence case; the host preserves provider wording rather than rewriting it.
 - `render()` is synchronous and returns bounded terminal lines.
-- `render({ width, height })` receives only the usable panel-body area, after the host divider, padding, title, and section spacing.
+- `render({ width, height, surface })` receives only the usable panel-body area, after the host divider, padding, title, and section spacing; `surface` is `right` or `narrow`.
 - Returning no lines hides the panel section.
 - `connect()` owns subscriptions or timers and returns their disposer.
 - The host clips every line and isolates render/connect failures by panel, including malformed or hostile output values.
@@ -163,7 +163,7 @@ Pi 0.82.1 does not expose a native column-reserving side-panel API. In `auto` mo
 3. mount one exact, non-capturing right overlay in the reserved columns;
 4. restore the renderer with compare-and-swap teardown.
 
-The renderer wrapper is version-sensitive. If another extension already owns an instance-level renderer wrapper, `auto` mode falls back to a normal wide overlay rather than stacking layout patches; it does not show an unreserved narrow overlay over Pi. Narrow mode uses exact non-capturing full-width overlay handles. Top mode blanks the corresponding first viewport rows; bottom mode appends reserved rows so Pi's footer moves upward and the shelf renders beneath it without replacing the footer. A transient root shorter than the viewport is left untouched and skips the shelf for that frame rather than risk covering content. If Pi later adds a native side-panel API, only the private surface adapter needs to change; panel providers and integrations stay unchanged.
+The renderer wrapper is version-sensitive. If another extension already owns an instance-level renderer wrapper, `auto` mode falls back to a normal wide overlay rather than stacking layout patches; its documented narrow widget remains available because it does not need render ownership. Forced `overlay` mode is wide-only and hides the narrow widget. Narrow mode never appends, deletes, overwrites, or inspects Pi root lines. This keeps slash completion and other transient editor UI entirely Pi-owned. If Pi later adds a native side-panel API, only the private surface adapter needs to change; panel providers and integrations stay unchanged.
 
 See [`docs/architecture.md`](docs/architecture.md) for invariants and trade-offs.
 

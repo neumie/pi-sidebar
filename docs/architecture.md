@@ -16,8 +16,7 @@ session controller ──► bounded panel renderer
         ▼
 sidebar surface
   ├─ dock: render-width reservation + right overlay
-  ├─ top: visible-row replacement + full-width top overlay
-  ├─ bottom: appended-row reservation + full-width bottom overlay
+  ├─ top/bottom: documented editor widget shelf
   └─ overlay: supported wide fallback without reservation
 ```
 
@@ -41,18 +40,15 @@ The renderer is a flat, unlabeled activity rail: every emitted row has one host-
 
 ### Configurable narrow shelf
 
-When the right rail does not fit and the terminal is at least 32 columns by 32 rows, the wrapper reserves seven full-width rows using the configured narrow position.
+When the right rail does not fit and the terminal is at least 32 columns by 32 rows, the controller mounts the seven-row shelf through Pi's documented `ctx.ui.setWidget()` seam. `top` uses the default `aboveEditor` placement and `bottom` uses `belowEditor`. Positions are consequently relative to Pi's editor/footer composition, not a claimed terminal viewport reservation.
 
-- `top` computes the current viewport start and replaces its first seven root rows with width-matched blanks. Root length and lower-row positions stay unchanged.
-- `bottom` appends seven blank rows after Pi's root. The viewport advances by seven, moving Pi's editor and footer upward while preserving their order and placing the shelf physically below the footer.
+The adaptive widget returns no rows when the rail fits, and is remounted when the configured position changes. It never appends, deletes, overwrites, or inspects root/editor lines, so transient slash roots remain entirely Pi-owned.
 
-Transient or foreign roots shorter than the viewport are left untouched because their row roles are unknowable. Exact non-capturing overlays at `top-left` and `bottom-left` are independently mounted but mutually gated; only the configured, successfully reserved position renders in a frame.
-
-The shared narrow renderer uses six content rows and one full-width dim-gray divider: below content in `top`, above content in `bottom`. It always stacks visible panels in one column using the shelf's full usable width. Each panel receives at most two summary body rows; when space is tight, panel detail takes precedence over an inter-panel spacer.
+The shared narrow renderer uses six content rows and one full-width dim-gray divider: below content in `top`, above content in `bottom`. It always stacks visible panels in one column using the shelf's full usable width. A panel may use up to five body rows; actual returned rows determine what remains for later panels, and panel detail takes precedence over an inter-panel spacer.
 
 ### Overlay fallback
 
-`auto` mode checks whether `render` is already an own property on the TUI instance. That indicates another extension may already wrap layout. Instead of stacking unsupported wrappers, the host uses a normal right overlay on wide terminals and leaves Pi at full width. It deliberately hides on narrow terminals: an unreserved top or bottom overlay would cover Pi content.
+`auto` mode checks whether `render` is already an own property on the TUI instance. That indicates another extension may already wrap layout. Instead of stacking unsupported wrappers, the host uses a normal right overlay on wide terminals and leaves Pi at full width. On narrow terminals, the documented editor widget remains safe and available because it does not depend on render ownership. Forced `overlay` mode is wide-only and hides the narrow widget.
 
 Terminals that fit neither the right rail nor the minimum narrow geometry hide the activity surface.
 
@@ -74,9 +70,9 @@ Terminals that fit neither the right rail nor the minimum narrow geometry hide t
 14. Keep every emitted row exactly the configured visible width and never exceed the current terminal height.
 15. Give providers only their usable body width and remaining body-row budget; hidden panels consume no heading or spacing.
 16. Select `dock`, configured `top`/`bottom`, `overlay`, or `hidden` from current terminal dimensions on every render; resizing requires no remount.
-17. Top reservation may replace only the first visible viewport rows; bottom reservation may only append bounded blank rows after Pi's root.
-18. Never show a narrow overlay unless the same frame successfully reserved its rows; preserve short root frames unchanged rather than guessing which rows belong to the editor or footer.
-19. Keep right, top, and bottom overlays non-capturing, mutually exclusive, and owned through their exact handles.
+17. Narrow shelves use only documented above/below-editor widgets and never mutate or inspect root lines.
+18. Render the adaptive narrow widget only when the right rail does not fit and usable narrow geometry is available.
+19. Keep the right overlay non-capturing and owned through its exact handle.
 20. Render integration health only from explicit actionable evidence; healthy, inactive, lazy, cached, malformed, and unknown states consume no panel rows.
 
 ## Integration contracts
@@ -89,7 +85,7 @@ Terminals that fit neither the right rail nor the minimum narrow geometry hide t
 - refresh signals: `subagent:async-started`, `subagent:async-complete`, `subagent:foreground-complete`, `subagent:control-event`
 - reconciliation: bounded `status` polling after successful `ping`
 
-The v1 status contract currently returns display text plus generic tool details. The adapter consumes that public text conservatively and treats unknown formatting as bounded lines.
+When `ping.capabilities.fleetStatus` is `{ version: 1 }`, the v1 status reply additionally exposes a bounded, current-session `fleet` DTO with opaque reconciliation keys, resolved agent roles, elapsed timestamps, model/effort, split token usage, caller-facing goals, and total/omitted counts. The adapter prefers that structured capability and never displays its opaque keys. Older peers fall back only to an ID-safe active-run count; human child-detail text is never rendered.
 
 ### pi-background-jobs
 
