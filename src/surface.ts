@@ -16,7 +16,7 @@ export interface SidebarSurfaceComponent extends Component {
 	setPresentation?(presentation: SidebarPresentation): void;
 }
 
-/** The narrow components live in Pi editor widgets, never in root-line overlays. */
+/** Narrow components live in controller-owned widgets/footer slots, never root overlays. */
 export interface SidebarSurfaceComponents {
 	right: SidebarSurfaceComponent;
 }
@@ -46,8 +46,8 @@ function normalizedSize(value: number): number {
 }
 
 /**
- * Owns the right rail only. Narrow shelves are mounted by the controller through
- * Pi's documented setWidget API, relative to the editor/footer composition.
+ * Owns the right rail only. The controller mounts narrow shelves through Pi's
+ * documented widgets or a compatible footer's bounded post-footer slot.
  */
 export function createSidebarSurface(
 	tui: TUI,

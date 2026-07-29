@@ -16,6 +16,12 @@ import {
 	type SidebarRegisterEnvelope,
 } from "./protocol.ts";
 import {
+	POST_FOOTER_SLOT_READY_EVENT,
+	POST_FOOTER_SLOT_REQUEST_EVENT,
+	parsePostFooterSlotReady,
+	type PostFooterSlotHandle,
+} from "./post-footer.ts";
+import {
 	NarrowSidebarComponent,
 	SidebarComponent,
 	type NarrowSidebarPosition,
@@ -43,6 +49,9 @@ interface SessionRuntime {
 	ctx: ExtensionContext;
 	surface?: SidebarSurface;
 	components?: Component[];
+	narrowComponent?: AdaptiveNarrowSidebarComponent;
+	postFooterToken?: string;
+	postFooterHandle?: PostFooterSlotHandle;
 	tick?: ReturnType<typeof setInterval>;
 }
 
@@ -125,11 +134,12 @@ class AdaptiveNarrowSidebarComponent implements Component {
 		private readonly narrow: NarrowSidebarComponent,
 		private readonly tui: TUI,
 		private readonly settings: SidebarSettings,
+		private readonly isPostFooterActive: () => boolean,
 	) {}
 	invalidate(): void {
 		this.narrow.invalidate();
 	}
-	render(width: number): string[] {
+	private renderNarrow(width: number): string[] {
 		const wide =
 			this.tui.terminal.columns >=
 			this.settings.minMainWidth + this.settings.gutter + this.settings.width;
@@ -141,6 +151,18 @@ class AdaptiveNarrowSidebarComponent implements Component {
 		)
 			return [];
 		return this.narrow.render(width).slice(0, this.settings.narrowRows);
+	}
+	render(width: number): string[] {
+		if (
+			this.settings.narrowPosition === "bottom" &&
+			this.isPostFooterActive()
+		) return [];
+		return this.renderNarrow(width);
+	}
+	renderPostFooter(width: number): string[] {
+		return this.settings.narrowPosition === "bottom"
+			? this.renderNarrow(width)
+			: [];
 	}
 }
 
@@ -182,6 +204,9 @@ export class SidebarController {
 			),
 			this.pi.events.on(SIDEBAR_UNREGISTER_EVENT, (payload) =>
 				this.unregisterPanel(payload),
+			),
+			this.pi.events.on(POST_FOOTER_SLOT_READY_EVENT, (payload) =>
+				this.registerPostFooterSlot(payload),
 			),
 		);
 		this.pi.on("session_start", (_event, ctx) => this.startSession(ctx));
@@ -289,7 +314,9 @@ export class SidebarController {
 					narrow,
 					tui as TUI,
 					this.settings,
+					() => this.postFooterActive(runtime),
 				);
+				runtime.narrowComponent = component;
 				runtime.components = [...(runtime.components ?? []), component];
 				return component;
 			},
@@ -332,6 +359,7 @@ export class SidebarController {
 				}
 				return new BootstrapComponent(() => {
 					if (!this.isCurrent(runtime)) return;
+					this.disposePostFooterSlot(runtime);
 					try {
 						runtime.ctx.ui.setWidget(NARROW_WIDGET_KEY, undefined);
 					} catch {
@@ -344,11 +372,13 @@ export class SidebarController {
 			},
 			{ placement: "belowEditor" },
 		);
+		this.requestPostFooterSlot(runtime);
 	}
 
 	private remount(): void {
 		const runtime = this.session;
 		if (!runtime) return;
+		this.disposePostFooterSlot(runtime);
 		try {
 			runtime.ctx.ui.setWidget(WIDGET_KEY, undefined);
 			runtime.ctx.ui.setWidget(NARROW_WIDGET_KEY, undefined);
@@ -358,7 +388,62 @@ export class SidebarController {
 		runtime.surface?.dispose();
 		runtime.surface = undefined;
 		runtime.components = undefined;
+		runtime.narrowComponent = undefined;
 		if (this.settings.enabled) this.mount(runtime);
+	}
+
+	private requestPostFooterSlot(runtime: SessionRuntime): void {
+		if (!this.isCurrent(runtime) || this.settings.narrowPosition !== "bottom")
+			return;
+		this.pi.events.emit(POST_FOOTER_SLOT_REQUEST_EVENT, {
+			version: 1,
+			sessionId: runtime.ctx.sessionManager.getSessionId(),
+		});
+	}
+
+	private registerPostFooterSlot(payload: unknown): void {
+		const source = parsePostFooterSlotReady(payload);
+		const runtime = this.session;
+		if (!source || !runtime || !this.isCurrent(runtime)) return;
+		if (source.sessionId !== runtime.ctx.sessionManager.getSessionId()) return;
+		if (this.settings.narrowPosition !== "bottom") return;
+		if (
+			runtime.postFooterToken === source.token &&
+			this.postFooterActive(runtime)
+		) return;
+		this.disposePostFooterSlot(runtime);
+		const handle = source.register({
+			id: "neumie.sidebar.narrow",
+			token: `${this.hostId}:${runtime.generation}`,
+			order: 100,
+			maxRows: this.settings.narrowRows,
+			render: (width) =>
+				this.isCurrent(runtime)
+					? runtime.narrowComponent?.renderPostFooter(width) ?? []
+					: [],
+		});
+		if (!handle?.isActive()) {
+			handle?.dispose();
+			return;
+		}
+		runtime.postFooterToken = source.token;
+		runtime.postFooterHandle = handle;
+		this.requestRender();
+	}
+
+	private postFooterActive(runtime: SessionRuntime): boolean {
+		if (!this.isCurrent(runtime)) return false;
+		try {
+			return runtime.postFooterHandle?.isActive() === true;
+		} catch {
+			return false;
+		}
+	}
+
+	private disposePostFooterSlot(runtime: SessionRuntime): void {
+		runtime.postFooterHandle?.dispose();
+		runtime.postFooterHandle = undefined;
+		runtime.postFooterToken = undefined;
 	}
 
 	private registerPanel(payload: unknown): void {
@@ -453,6 +538,7 @@ export class SidebarController {
 	private stopSession(): void {
 		const runtime = this.session;
 		if (!runtime) return;
+		this.disposePostFooterSlot(runtime);
 		this.session = undefined;
 		if (runtime.tick) clearInterval(runtime.tick);
 		for (const registration of this.registrations.values())

@@ -12,6 +12,7 @@ import {
 	type TUI,
 } from "@earendil-works/pi-tui";
 import { SidebarController } from "../src/controller.ts";
+import { POST_FOOTER_SLOT_READY_EVENT } from "../src/post-footer.ts";
 import { SIDEBAR_REGISTER_EVENT } from "../src/protocol.ts";
 
 class EventBus {
@@ -245,6 +246,92 @@ describe("SidebarController", () => {
 		assert.equal(h.tui.hideCount, 3);
 		h.tui.terminal.rows = 14;
 		assert.deepEqual(h.tui.render(120), ["main:120"]);
+	});
+
+	it("moves narrow bottom below a compatible footer and keeps the widget fallback", async () => {
+		const h = harness();
+		h.tui.terminal.columns = 80;
+		h.tui.terminal.rows = 40;
+		new SidebarController(h.pi).register();
+		h.events.emit(SIDEBAR_REGISTER_EVENT, {
+			version: 1,
+			token: "panel-token",
+			panel: {
+				id: "example.activity",
+				title: "Example panel",
+				render: () => ["active"],
+			},
+		});
+		h.start();
+		const narrowWidget = h.widget("@neumie/pi-sidebar:narrow");
+		assert.ok(narrowWidget);
+		assert.equal(narrowWidget.render(80).length, 7);
+
+		let registeredSlot:
+			| { render(width: number): readonly string[] }
+			| undefined;
+		let slotActive = false;
+		h.events.emit(POST_FOOTER_SLOT_READY_EVENT, {
+			version: 1,
+			sessionId: "wrong-session",
+			token: "foreign-footer-capability",
+			register() {
+				throw new Error("foreign capability must not be called");
+			},
+		});
+		assert.equal(registeredSlot, undefined);
+		h.events.emit(POST_FOOTER_SLOT_READY_EVENT, {
+			version: 1,
+			sessionId: "session-1",
+			token: "footer-capability",
+			register(slot: { render(width: number): readonly string[] }) {
+				registeredSlot = slot;
+				slotActive = true;
+				return {
+					isActive: () => slotActive,
+					dispose: () => { slotActive = false; },
+				};
+			},
+		});
+		await Promise.resolve();
+		const activeSlot = registeredSlot as
+			| { render(width: number): readonly string[] }
+			| undefined;
+		assert.ok(activeSlot);
+		assert.deepEqual(narrowWidget.render(80), []);
+		const footerShelf = activeSlot.render(80);
+		assert.equal(footerShelf.length, 7);
+		assert.equal(footerShelf[0], "─".repeat(80));
+		assert.match(footerShelf.join("\n"), /Example panel.*active/s);
+
+		slotActive = false;
+		assert.equal(narrowWidget.render(80).length, 7);
+		h.events.emit(POST_FOOTER_SLOT_READY_EVENT, {
+			version: 1,
+			sessionId: "session-1",
+			token: "replacement-footer-capability",
+			register(slot: { render(width: number): readonly string[] }) {
+				registeredSlot = slot;
+				slotActive = true;
+				return {
+					isActive: () => slotActive,
+					dispose: () => { slotActive = false; },
+				};
+			},
+		});
+		assert.deepEqual(narrowWidget.render(80), []);
+		const command = h.commands.get("sidebar");
+		assert.ok(command);
+		await command.handler("narrow top", h.ctx);
+		assert.equal(slotActive, false);
+		assert.equal(
+			h.widgetPlacement("@neumie/pi-sidebar:narrow"),
+			"aboveEditor",
+		);
+		assert.equal(h.widget("@neumie/pi-sidebar:narrow")?.render(80).length, 7);
+
+		h.shutdown();
+		assert.equal(slotActive, false);
 	});
 
 	it("rejects malformed width and narrow arguments", async () => {

@@ -16,7 +16,8 @@ session controller ──► bounded panel renderer
         ▼
 sidebar surface
   ├─ dock: render-width reservation + right overlay
-  ├─ top/bottom: documented editor widget shelf
+  ├─ top: documented above-editor widget shelf
+  ├─ bottom: pi-footer trailing slot with below-editor fallback
   └─ overlay: supported wide fallback without reservation
 ```
 
@@ -40,9 +41,9 @@ The renderer is a flat, unlabeled activity rail: every emitted row has one host-
 
 ### Configurable narrow shelf
 
-When the right rail does not fit and the terminal is at least 32 columns by 32 rows, the controller mounts the seven-row shelf through Pi's documented `ctx.ui.setWidget()` seam. `top` uses the default `aboveEditor` placement and `bottom` uses `belowEditor`. Positions are consequently relative to Pi's editor/footer composition, not a claimed terminal viewport reservation.
+When the right rail does not fit and the terminal is at least 32 columns by 32 rows, the controller mounts the seven-row shelf without claiming root lines. `top` uses Pi's documented `aboveEditor` widget placement. `bottom` requests `pi-footer`'s versioned, session-scoped post-footer capability and registers the same bounded renderer there, producing editor → footer → shelf. If that capability is missing, incompatible, replaced, or inactive, the existing documented `belowEditor` widget immediately resumes as the safe fallback.
 
-The adaptive widget returns no rows when the rail fits, and is remounted when the configured position changes. It never appends, deletes, overwrites, or inspects root/editor lines, so transient slash roots remain entirely Pi-owned.
+The adaptive widget returns no rows while a live post-footer handle owns bottom placement or when the rail fits, and is remounted when the configured position changes. Capability and registration handles are exact-session, generation-safe, and disposed before widget/session teardown. Neither path appends, deletes, overwrites, or inspects root/editor lines, so transient slash roots remain entirely Pi-owned.
 
 The shared narrow renderer uses six content rows and one full-width dim-gray divider: below content in `top`, above content in `bottom`. It always stacks visible panels in one column using the shelf's full usable width. A panel may use up to five body rows; actual returned rows determine what remains for later panels, and panel detail takes precedence over an inter-panel spacer.
 
@@ -70,8 +71,8 @@ Terminals that fit neither the right rail nor the minimum narrow geometry hide t
 14. Keep every emitted row exactly the configured visible width and never exceed the current terminal height.
 15. Give providers only their usable body width and remaining body-row budget; hidden panels consume no heading or spacing.
 16. Select `dock`, configured `top`/`bottom`, `overlay`, or `hidden` from current terminal dimensions on every render; resizing requires no remount.
-17. Narrow shelves use only documented above/below-editor widgets and never mutate or inspect root lines.
-18. Render the adaptive narrow widget only when the right rail does not fit and usable narrow geometry is available.
+17. Narrow shelves use documented editor widgets or the versioned `pi-footer` post-footer capability and never mutate or inspect root lines.
+18. Render exactly one narrow-bottom copy: prefer a live post-footer handle, otherwise use the `belowEditor` fallback; top remains `aboveEditor`.
 19. Keep the right overlay non-capturing and owned through its exact handle.
 20. Render integration health only from explicit actionable evidence; healthy, inactive, lazy, cached, malformed, and unknown states consume no panel rows.
 
@@ -110,6 +111,10 @@ The MCP adapter consumes Pi's documented `tool_result` lifecycle and structured 
 
 This is deliberately reactive: `pi-mcp-adapter` has no documented push health event. The adapter neither polls private state nor deep-imports the peer.
 
+## pi-footer post-footer composition
+
+Pi 0.82.1 hardcodes `belowEditor` widgets before its footer and offers no `belowFooter` placement. `pi-footer` 0.4.0 therefore exposes `pi-footer:post-footer:v1:request` / `ready`. The ready payload carries an exact-session registration function; the sidebar contributes only its synchronous bounded renderer and keeps ownership of all activity state. The footer validates and caps lines, isolates failures, and returns a handle whose `isActive()` state controls the ordinary widget fallback. Replayed capabilities replace handles atomically, and stale handles cannot suppress a replacement session's widget.
+
 ## Future native Pi API
 
-When Pi exposes native side- or top-panel reservation APIs, add a native surface adapter and prefer it through feature detection. Do not change the panel contract, provider protocol, renderers, or integration adapters.
+When Pi exposes native side-, top-, or below-footer reservation APIs, add a native surface adapter and prefer it through feature detection. Do not change the panel contract, provider protocol, renderers, or integration adapters.

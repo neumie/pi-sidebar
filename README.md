@@ -25,7 +25,7 @@ Pi session footer
 
 - Reserves a right-hand column so Pi's transcript, editor, widgets, and footer reflow instead of rendering underneath it.
 - Minimal chrome: one quiet structural divider—left for the right rail, above a bottom shelf, or below a top shelf—plus whitespace hierarchy and accent reserved for live activity.
-- Does not replace the footer, so it composes with [`pi-footer`](https://github.com/neumie/pi-footer).
+- Does not replace the footer; with [`pi-footer`](https://github.com/neumie/pi-footer) 0.4.0 or newer, the narrow-bottom shelf composes after the footer.
 - Zero-config [`pi-subagents`](https://github.com/neumie/pi-subagents) panel through its versioned in-process RPC and lifecycle events.
 - Zero-config [`pi-background-jobs`](https://github.com/neumie/pi-background-jobs) panel through its stable `background-jobs:changed` event.
 - Degraded-only Integrations panel for actionable LSP failures and observed MCP authentication/connectivity failures; healthy, inactive, cached, and lazily disconnected integrations stay hidden.
@@ -61,7 +61,7 @@ Pi packages execute with your full system permissions. Review extension source b
 /sidebar mode auto               choose a safe responsive layout
 /sidebar mode dock               reserve the right rail when it fits
 /sidebar mode overlay            use Pi's supported wide overlay behavior
-/sidebar narrow bottom           place narrow mode below the editor (default)
+/sidebar narrow bottom           place narrow mode after a compatible footer (default)
 /sidebar narrow top              place narrow mode above the editor
 ```
 
@@ -74,14 +74,14 @@ Runtime command changes are session-scoped. Environment defaults:
 | `PI_SIDEBAR_WIDTH` | `42` | Sidebar columns. |
 | `PI_SIDEBAR_GUTTER` | `1` | Blank columns between Pi and the sidebar. |
 | `PI_SIDEBAR_MIN_MAIN_WIDTH` | `64` | Minimum columns preserved beside the right rail. |
-| `PI_SIDEBAR_NARROW_POSITION` | `bottom` | `bottom` below the editor, or `top` above it. |
+| `PI_SIDEBAR_NARROW_POSITION` | `bottom` | `bottom` after a compatible footer, or `top` above the editor. |
 | `PI_SIDEBAR_NARROW_ROWS` | `7` | Rows rendered by the narrow shelf. |
 | `PI_SIDEBAR_NARROW_MIN_WIDTH` | `32` | Minimum terminal width for narrow mode. |
 | `PI_SIDEBAR_NARROW_MIN_HEIGHT` | `32` | Minimum terminal height for narrow mode. |
 
 The former `PI_SIDEBAR_TOP_*` geometry variables remain accepted as fallback aliases when their corresponding remaining `PI_SIDEBAR_NARROW_*` variable is unset.
 
-In `auto` and `dock` modes, the right rail wins whenever the terminal can fit the configured main width, gutter, and sidebar width. Otherwise a terminal at least 32 columns wide and 32 rows tall gets a seven-row, single-column narrow shelf through Pi's documented widget API. `narrow bottom` places it below the editor and above the footer; `narrow top` places it above the editor. Smaller terminals hide the activity surface.
+In `auto` and `dock` modes, the right rail wins whenever the terminal can fit the configured main width, gutter, and sidebar width. Otherwise a terminal at least 32 columns wide and 32 rows tall gets a seven-row, single-column narrow shelf. `narrow bottom` registers a bounded post-footer renderer when `pi-footer` 0.4.0 or newer is present, producing editor → footer → shelf; with Pi's built-in footer or an older custom footer it safely falls back to the documented `belowEditor` widget. `narrow top` always uses the documented `aboveEditor` widget. Smaller terminals hide the activity surface.
 
 The configured right-rail width includes the divider and internal padding. Right-rail providers receive `configured width - 6` body columns; narrow-shelf providers receive the shelf's full usable width. Provider height always excludes host-owned headings and section spacing.
 
@@ -163,7 +163,7 @@ Pi 0.82.1 does not expose a native column-reserving side-panel API. In `auto` mo
 3. mount one exact, non-capturing right overlay in the reserved columns;
 4. restore the renderer with compare-and-swap teardown.
 
-The renderer wrapper is version-sensitive. If another extension already owns an instance-level renderer wrapper, `auto` mode falls back to a normal wide overlay rather than stacking layout patches; its documented narrow widget remains available because it does not need render ownership. Forced `overlay` mode is wide-only and hides the narrow widget. Narrow mode never appends, deletes, overwrites, or inspects Pi root lines. This keeps slash completion and other transient editor UI entirely Pi-owned. If Pi later adds a native side-panel API, only the private surface adapter needs to change; panel providers and integrations stay unchanged.
+The renderer wrapper is version-sensitive. If another extension already owns an instance-level renderer wrapper, `auto` mode falls back to a normal wide overlay rather than stacking layout patches; narrow mode remains available because it does not need render ownership. Forced `overlay` mode is wide-only and hides the narrow shelf. Narrow mode never appends, deletes, overwrites, or inspects Pi root lines: it uses documented editor widgets plus the optional versioned `pi-footer` post-footer capability. This keeps slash completion and other transient editor UI entirely Pi-owned. If Pi later adds a native side-panel or below-footer API, only the private surface adapter needs to change; panel providers and integrations stay unchanged.
 
 See [`docs/architecture.md`](docs/architecture.md) for invariants and trade-offs.
 
