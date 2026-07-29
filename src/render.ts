@@ -314,7 +314,10 @@ export class NarrowSidebarComponent implements Component {
 		const contentRow = (content: unknown = "") =>
 			`${" ".repeat(LEFT_PADDING)}${bounded(content, contentWidth, true)}${" ".repeat(RIGHT_PADDING)}`;
 		if (renderedPanels === 0) {
-			const stateRow = Math.max(0, Math.floor((contentRows - 2) / 2));
+			const availablePadding = Math.max(0, contentRows - 2);
+			const stateRow = position === "bottom"
+				? Math.ceil(availablePadding / 2)
+				: Math.floor(availablePadding / 2);
 			const centered = (value: unknown) => {
 				const text = bounded(value, contentWidth);
 				const left = Math.max(0, Math.floor((contentWidth - visibleWidth(text)) / 2));

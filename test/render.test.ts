@@ -311,13 +311,21 @@ describe("NarrowSidebarComponent", () => {
 		assert.match(twoColumns[0]!, /First panel.*Second panel/);
 	});
 
-	it("centers an empty directive state beside the structural divider", () => {
-		const lines = narrowComponent([]).render(60);
-		assert.equal(lines.length, 8);
-		assertNarrowShelf(lines, 60, "top");
-		assert.match(lines[2]!, /No active work/);
-		assert.match(lines[3]!, /Start a subagent or background job/);
-		assert.doesNotMatch(lines.slice(0, 2).join("\n"), /No active work/);
+	it("centers an empty directive state beside either structural divider", () => {
+		const topLines = narrowComponent([]).render(60);
+		assert.equal(topLines.length, 8);
+		assertNarrowShelf(topLines, 60, "top");
+		assert.match(topLines[2]!, /No active work/);
+		assert.match(topLines[3]!, /Start a subagent or background job/);
+		assert.doesNotMatch(topLines.slice(0, 2).join("\n"), /No active work/);
+
+		const bottomLines = narrowComponent([], 72, "bottom").render(60);
+		assert.equal(bottomLines.length, 8);
+		assertNarrowShelf(bottomLines, 60, "bottom");
+		assert.ok(bottomLines.slice(1, 4).every((line) => line.trim() === ""));
+		assert.match(bottomLines[4]!, /No active work/);
+		assert.match(bottomLines[5]!, /Start a subagent or background job/);
+		assert.ok(bottomLines.slice(6).every((line) => line.trim() === ""));
 	});
 
 	it("uses the dim theme color for either structural divider", () => {
