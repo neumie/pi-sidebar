@@ -310,9 +310,7 @@ export class NarrowSidebarComponent implements Component {
 			`${" ".repeat(LEFT_PADDING)}${bounded(content, contentWidth, true)}${" ".repeat(RIGHT_PADDING)}`;
 		if (renderedPanels === 0) {
 			const availablePadding = Math.max(0, contentRows - 2);
-			const stateRow = position === "bottom"
-				? Math.ceil(availablePadding / 2)
-				: Math.floor(availablePadding / 2);
+			const stateRow = Math.floor(availablePadding / 2);
 			for (let rowIndex = 0; rowIndex < contentRows; rowIndex += 1) {
 				let content = "";
 				if (rowIndex === stateRow) {

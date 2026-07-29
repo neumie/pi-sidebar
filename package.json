@@ -1,6 +1,6 @@
 {
   "name": "@neumie/pi-sidebar",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "An adaptive, extensible activity sidebar for Pi.",
   "type": "module",
   "license": "MIT",

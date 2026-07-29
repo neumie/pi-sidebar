@@ -326,21 +326,22 @@ describe("NarrowSidebarComponent", () => {
 		}
 	});
 
-	it("centers an empty directive state beside either structural divider", () => {
+	it("centers an empty directive state with the odd spare row below", () => {
 		const topLines = narrowComponent([]).render(60);
 		assert.equal(topLines.length, 8);
 		assertNarrowShelf(topLines, 60, "top");
+		assert.ok(topLines.slice(0, 2).every((line) => line.trim() === ""));
 		assert.match(topLines[2]!, /No active work/);
 		assert.match(topLines[3]!, /Start a subagent or background job/);
-		assert.doesNotMatch(topLines.slice(0, 2).join("\n"), /No active work/);
+		assert.ok(topLines.slice(4, 7).every((line) => line.trim() === ""));
 
 		const bottomLines = narrowComponent([], "bottom").render(60);
 		assert.equal(bottomLines.length, 8);
 		assertNarrowShelf(bottomLines, 60, "bottom");
-		assert.ok(bottomLines.slice(1, 4).every((line) => line.trim() === ""));
-		assert.match(bottomLines[4]!, /No active work/);
-		assert.match(bottomLines[5]!, /Start a subagent or background job/);
-		assert.ok(bottomLines.slice(6).every((line) => line.trim() === ""));
+		assert.ok(bottomLines.slice(1, 3).every((line) => line.trim() === ""));
+		assert.match(bottomLines[3]!, /No active work/);
+		assert.match(bottomLines[4]!, /Start a subagent or background job/);
+		assert.ok(bottomLines.slice(5).every((line) => line.trim() === ""));
 	});
 
 	it("uses the dim theme color for either structural divider", () => {
