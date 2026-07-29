@@ -1,21 +1,30 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Component, OverlayOptions, TUI } from "@earendil-works/pi-tui";
-import { createSidebarSurface, type SidebarSurfaceComponent } from "../src/surface.ts";
+import {
+	createSidebarSurface,
+	type SidebarSurfaceComponent,
+	type SidebarSurfaceComponents,
+} from "../src/surface.ts";
 
 class FakeTui {
 	readonly terminal = { columns: 120, rows: 30 };
 	readonly widths: number[] = [];
-	readonly overlays: OverlayOptions[] = [];
+	readonly overlays: Array<{ component: Component; options: OverlayOptions }> = [];
 	hideCount = 0;
 	renders = 0;
+	overlayCalls = 0;
+	failOverlayAt: number | undefined;
+	rootFactory: ((width: number) => string[]) | undefined;
 
 	render(width: number): string[] {
 		this.widths.push(width);
-		return [`main:${width}`];
+		return this.rootFactory?.(width) ?? [`main:${width}`];
 	}
-	showOverlay(_component: Component, options?: OverlayOptions) {
-		this.overlays.push(options ?? {});
+	showOverlay(component: Component, options?: OverlayOptions) {
+		this.overlayCalls += 1;
+		if (this.overlayCalls === this.failOverlayAt) throw new Error("overlay mount failed");
+		this.overlays.push({ component, options: options ?? {} });
 		return {
 			hide: () => { this.hideCount += 1; },
 			setHidden() {}, isHidden: () => false, focus() {}, unfocus() {}, isFocused: () => false,
@@ -24,49 +33,182 @@ class FakeTui {
 	requestRender(): void { this.renders += 1; }
 }
 
-function fakeComponent(): SidebarSurfaceComponent & { presentation?: string } {
+function fakeComponents(): SidebarSurfaceComponents & { right: SidebarSurfaceComponent & { presentation?: string } } {
 	return {
-		presentation: undefined,
-		setPresentation(presentation) { this.presentation = presentation; },
-		render: () => [],
-		invalidate() {},
+		right: {
+			presentation: undefined,
+			setPresentation(presentation) { this.presentation = presentation; },
+			render: () => [],
+			invalidate() {},
+		},
+		top: { render: () => [], invalidate() {} },
 	};
 }
 
-const options = { mode: "auto" as const, width: 42, gutter: 1, minMainWidth: 64 };
+const options = {
+	mode: "auto" as const,
+	width: 42,
+	gutter: 1,
+	minMainWidth: 64,
+	topRows: 8,
+	minTopWidth: 32,
+	minTopHeight: 32,
+};
+
+function visible(overlay: { options: OverlayOptions } | undefined, width: number, height: number): boolean {
+	return overlay?.options.visible?.(width, height) ?? true;
+}
 
 describe("createSidebarSurface", () => {
-	it("reserves columns in auto mode and mounts a non-capturing overlay", () => {
+	it("reserves columns in wide auto mode and mounts both non-capturing overlays", () => {
 		const tui = new FakeTui();
-		const component = fakeComponent();
-		const surface = createSidebarSurface(tui as unknown as TUI, component, options);
+		const components = fakeComponents();
+		const surface = createSidebarSurface(tui as unknown as TUI, components, options);
 		assert.equal(surface.backend(), "dock");
 		assert.deepEqual(tui.render(120), ["main:77"]);
-		assert.equal(tui.overlays[0]?.nonCapturing, true);
-		assert.equal(tui.overlays[0]?.anchor, "top-right");
-		assert.equal(tui.overlays[0]?.width, 42);
-		assert.equal(tui.overlays[0]?.maxHeight, "100%");
-		assert.equal(tui.overlays[0]?.margin, 0);
-		assert.equal(component.presentation, "dock");
+		assert.equal(tui.overlays.length, 2);
+		assert.equal(tui.overlays[0]?.options.nonCapturing, true);
+		assert.equal(tui.overlays[0]?.options.anchor, "top-right");
+		assert.equal(tui.overlays[0]?.options.width, 42);
+		assert.equal(tui.overlays[0]?.options.maxHeight, "100%");
+		assert.equal(tui.overlays[1]?.options.nonCapturing, true);
+		assert.equal(tui.overlays[1]?.options.anchor, "top-left");
+		assert.equal(tui.overlays[1]?.options.width, "100%");
+		assert.equal(tui.overlays[1]?.options.maxHeight, 8);
+		assert.equal(visible(tui.overlays[0], 120, 30), true);
+		assert.equal(visible(tui.overlays[1], 120, 30), false);
+		assert.equal(components.right.presentation, "dock");
 
 		surface.dispose();
 		assert.deepEqual(tui.render(120), ["main:120"]);
-		assert.equal(tui.hideCount, 1);
+		assert.equal(tui.hideCount, 2);
 	});
 
-	it("uses overlay fallback when another extension already owns render", () => {
+	it("reserves the visible top viewport without moving the footer", () => {
+		const tui = new FakeTui();
+		tui.terminal.columns = 80;
+		tui.terminal.rows = 40;
+		tui.rootFactory = (width) => Array.from(
+			{ length: 50 },
+			(_, index) => index === 49 ? "footer" : `root:${index}:${width}`,
+		);
+		const surface = createSidebarSurface(tui as unknown as TUI, fakeComponents(), options);
+		const rendered = tui.render(80);
+		assert.equal(surface.backend(), "top");
+		assert.equal(rendered.length, 50);
+		assert.equal(rendered[9], "root:9:80");
+		for (let index = 10; index < 18; index += 1) {
+			assert.equal(rendered[index], " ".repeat(80));
+		}
+		assert.equal(rendered[18], "root:18:80");
+		assert.equal(rendered[49], "footer");
+		assert.equal(visible(tui.overlays[0], 80, 40), false);
+		assert.equal(visible(tui.overlays[1], 80, 40), true);
+		surface.dispose();
+	});
+
+	it("keeps a short root intact and skips an unsafe top overlay for that frame", () => {
+		const tui = new FakeTui();
+		tui.terminal.columns = 80;
+		tui.terminal.rows = 40;
+		tui.rootFactory = () => ["editor", "footer"];
+		const surface = createSidebarSurface(tui as unknown as TUI, fakeComponents(), options);
+		assert.deepEqual(tui.render(80), ["editor", "footer"]);
+		assert.equal(visible(tui.overlays[1], 80, 40), false);
+		assert.equal(surface.backend(), "top");
+		surface.dispose();
+	});
+
+	it("activates top mode only for very tall terminals of usable width", () => {
+		const tui = new FakeTui();
+		tui.terminal.columns = 80;
+		tui.terminal.rows = 31;
+		tui.rootFactory = (width) => Array.from({ length: 40 }, (_, index) => `root:${index}:${width}`);
+		const surface = createSidebarSurface(tui as unknown as TUI, fakeComponents(), options);
+		assert.equal(surface.backend(), "hidden");
+		assert.deepEqual(tui.render(80), tui.rootFactory(80));
+
+		tui.terminal.rows = 32;
+		tui.render(80);
+		assert.equal(surface.backend(), "top");
+		assert.equal(visible(tui.overlays[1], 80, 32), true);
+
+		tui.terminal.columns = 31;
+		tui.render(31);
+		assert.equal(surface.backend(), "hidden");
+		assert.equal(visible(tui.overlays[1], 31, 40), false);
+		surface.dispose();
+	});
+
+	it("uses wide overlay fallback when another extension already owns render", () => {
 		const tui = new FakeTui();
 		const original = tui.render.bind(tui);
 		tui.render = (width) => original(width);
-		const surface = createSidebarSurface(tui as unknown as TUI, fakeComponent(), options);
+		const surface = createSidebarSurface(tui as unknown as TUI, fakeComponents(), options);
 		assert.equal(surface.backend(), "overlay");
 		assert.deepEqual(tui.render(120), ["main:120"]);
+		assert.equal(visible(tui.overlays[0], 120, 30), true);
+		tui.terminal.columns = 80;
+		tui.terminal.rows = 40;
+		assert.equal(surface.backend(), "hidden");
+		assert.equal(visible(tui.overlays[1], 80, 40), false);
 		surface.dispose();
+	});
+
+	it("never uses unreserved top mode when overlay mode is forced", () => {
+		const tui = new FakeTui();
+		tui.terminal.columns = 80;
+		tui.terminal.rows = 40;
+		const surface = createSidebarSurface(
+			tui as unknown as TUI,
+			fakeComponents(),
+			{ ...options, mode: "overlay" },
+		);
+		assert.equal(surface.backend(), "hidden");
+		assert.deepEqual(tui.render(80), ["main:80"]);
+		assert.equal(visible(tui.overlays[1], 80, 40), false);
+		surface.dispose();
+	});
+
+	it("falls back to a wide overlay after a dock render failure", () => {
+		const tui = new FakeTui();
+		const warnings: string[] = [];
+		tui.rootFactory = (width) => {
+			if (width === 77) throw new Error("narrow render failed");
+			return [`main:${width}`];
+		};
+		const surface = createSidebarSurface(
+			tui as unknown as TUI,
+			fakeComponents(),
+			{ ...options, onWarning: (message) => warnings.push(message) },
+		);
+		assert.deepEqual(tui.render(120), ["main:120"]);
+		assert.equal(surface.backend(), "overlay");
+		assert.equal(visible(tui.overlays[0], 120, 30), true);
+		assert.equal(visible(tui.overlays[1], 120, 30), false);
+		assert.deepEqual(warnings, ["Adaptive sidebar reservation disabled after a render failure: narrow render failed"]);
+		surface.dispose();
+	});
+
+	it("rolls back the first overlay and render wrapper when the second mount fails", () => {
+		const tui = new FakeTui();
+		tui.failOverlayAt = 2;
+		assert.throws(
+			() => createSidebarSurface(tui as unknown as TUI, fakeComponents(), options),
+			/overlay mount failed/,
+		);
+		assert.equal(tui.hideCount, 1);
+		assert.equal(Object.prototype.hasOwnProperty.call(tui, "render"), false);
+		assert.deepEqual(tui.render(120), ["main:120"]);
 	});
 
 	it("leaves a later render wrapper installed and makes its own wrapper inert", () => {
 		const tui = new FakeTui();
-		const surface = createSidebarSurface(tui as unknown as TUI, fakeComponent(), { ...options, mode: "dock" });
+		const surface = createSidebarSurface(
+			tui as unknown as TUI,
+			fakeComponents(),
+			{ ...options, mode: "dock" },
+		);
 		const sidebarWrapper = tui.render;
 		const later = (width: number) => sidebarWrapper.call(tui, width);
 		tui.render = later;
@@ -75,9 +217,10 @@ describe("createSidebarSurface", () => {
 		assert.deepEqual(tui.render(120), ["main:120"]);
 	});
 
-	it("reserves only at or above the exact responsive threshold", () => {
+	it("switches exactly at the right-dock width threshold", () => {
 		const tui = new FakeTui();
-		const surface = createSidebarSurface(tui as unknown as TUI, fakeComponent(), options);
+		tui.terminal.rows = 30;
+		const surface = createSidebarSurface(tui as unknown as TUI, fakeComponents(), options);
 		assert.deepEqual(tui.render(107), ["main:64"]);
 		assert.deepEqual(tui.render(106), ["main:106"]);
 		surface.dispose();

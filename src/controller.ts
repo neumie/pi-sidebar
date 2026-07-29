@@ -18,7 +18,7 @@ import {
 	isUnregisterEnvelope,
 	type SidebarRegisterEnvelope,
 } from "./protocol.ts";
-import { SidebarComponent, type SidebarPresentation } from "./render.ts";
+import { SidebarComponent, TopSidebarComponent } from "./render.ts";
 import {
 	createSidebarSurface,
 	type SidebarLayoutMode,
@@ -40,7 +40,7 @@ interface SessionRuntime {
 	generation: number;
 	ctx: ExtensionContext;
 	surface?: SidebarSurface;
-	component?: SidebarComponent;
+	components?: [SidebarComponent, TopSidebarComponent];
 	tick?: ReturnType<typeof setInterval>;
 }
 
@@ -50,6 +50,10 @@ interface SidebarSettings {
 	width: number;
 	gutter: number;
 	minMainWidth: number;
+	topRows: number;
+	minTopWidth: number;
+	minTopHeight: number;
+	topTwoColumnWidth: number;
 }
 
 function integerEnv(name: string, fallback: number, minimum: number, maximum: number): number {
@@ -60,12 +64,17 @@ function integerEnv(name: string, fallback: number, minimum: number, maximum: nu
 function initialSettings(): SidebarSettings {
 	const rawMode = process.env.PI_SIDEBAR_MODE;
 	const mode: SidebarLayoutMode = rawMode === "dock" || rawMode === "overlay" ? rawMode : "auto";
+	const topRows = integerEnv("PI_SIDEBAR_TOP_ROWS", 8, 4, 16);
 	return {
 		enabled: process.env.PI_SIDEBAR_ENABLED !== "0",
 		mode,
 		width: integerEnv("PI_SIDEBAR_WIDTH", 42, 24, 80),
 		gutter: integerEnv("PI_SIDEBAR_GUTTER", 1, 0, 4),
 		minMainWidth: integerEnv("PI_SIDEBAR_MIN_MAIN_WIDTH", 64, 40, 160),
+		topRows,
+		minTopWidth: integerEnv("PI_SIDEBAR_TOP_MIN_WIDTH", 32, 24, 120),
+		minTopHeight: integerEnv("PI_SIDEBAR_TOP_MIN_HEIGHT", 32, topRows + 8, 160),
+		topTwoColumnWidth: integerEnv("PI_SIDEBAR_TOP_TWO_COLUMN_WIDTH", 72, 48, 200),
 	};
 }
 
@@ -146,7 +155,7 @@ export class SidebarController {
 
 	private statusLine(): string {
 		const backend = this.session?.surface?.backend() ?? (this.settings.enabled ? "not mounted" : "hidden");
-		return `Sidebar ${this.settings.enabled ? "on" : "off"} · mode ${this.settings.mode} · backend ${backend} · width ${this.settings.width} · ${this.registrations.size} panels`;
+		return `Sidebar ${this.settings.enabled ? "on" : "off"} · mode ${this.settings.mode} · backend ${backend} · width ${this.settings.width} · top ${this.settings.topRows} rows · ${this.registrations.size} panels`;
 	}
 
 	private startSession(ctx: ExtensionContext): void {
@@ -169,25 +178,36 @@ export class SidebarController {
 		if (!this.isCurrent(runtime)) return;
 		runtime.ctx.ui.setWidget(WIDGET_KEY, (tui, theme) => {
 			if (!this.isCurrent(runtime)) return new BootstrapComponent(() => undefined);
-			let presentation: SidebarPresentation = "overlay";
-			const component = new SidebarComponent({
+			const getPanels = () => [...this.registrations.values()].map((entry) => entry.panel);
+			const rightComponent = new SidebarComponent({
 				theme: theme as Theme,
-				getPanels: () => [...this.registrations.values()].map((entry) => entry.panel),
+				getPanels,
 				getTerminalHeight: () => tui.terminal.rows,
-				getPresentation: () => presentation,
+				getPresentation: () => "overlay",
 			});
-			runtime.component = component;
+			const topComponent = new TopSidebarComponent({
+				theme: theme as Theme,
+				getPanels,
+				getTerminalHeight: () => tui.terminal.rows,
+				getRows: () => this.settings.topRows,
+				getTwoColumnMinWidth: () => this.settings.topTwoColumnWidth,
+			});
+			runtime.components = [rightComponent, topComponent];
 			try {
-				const surface = createSidebarSurface(tui as TUI, component, {
-					mode: this.settings.mode,
-					width: this.settings.width,
-					gutter: this.settings.gutter,
-					minMainWidth: this.settings.minMainWidth,
-					onWarning: (message) => runtime.ctx.ui.notify(message, "warning"),
-				});
-				runtime.surface = surface;
-				presentation = surface.backend();
-				component.setPresentation(presentation);
+				runtime.surface = createSidebarSurface(
+					tui as TUI,
+					{ right: rightComponent, top: topComponent },
+					{
+						mode: this.settings.mode,
+						width: this.settings.width,
+						gutter: this.settings.gutter,
+						minMainWidth: this.settings.minMainWidth,
+						topRows: this.settings.topRows,
+						minTopWidth: this.settings.minTopWidth,
+						minTopHeight: this.settings.minTopHeight,
+						onWarning: (message) => runtime.ctx.ui.notify(message, "warning"),
+					},
+				);
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				runtime.ctx.ui.notify(`Sidebar unavailable: ${message}`, "warning");
@@ -196,7 +216,7 @@ export class SidebarController {
 				if (!this.isCurrent(runtime)) return;
 				runtime.surface?.dispose();
 				runtime.surface = undefined;
-				runtime.component = undefined;
+				runtime.components = undefined;
 			});
 		}, { placement: "belowEditor" });
 	}
@@ -211,7 +231,7 @@ export class SidebarController {
 		}
 		runtime.surface?.dispose();
 		runtime.surface = undefined;
-		runtime.component = undefined;
+		runtime.components = undefined;
 		if (this.settings.enabled) this.mount(runtime);
 	}
 
@@ -282,7 +302,7 @@ export class SidebarController {
 		this.renderQueued = true;
 		queueMicrotask(() => {
 			this.renderQueued = false;
-			this.session?.component?.invalidate();
+			for (const component of this.session?.components ?? []) component.invalidate();
 			this.session?.surface?.requestRender();
 		});
 	}

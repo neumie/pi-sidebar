@@ -20,14 +20,17 @@ class EventBus {
 
 class FakeTui {
 	readonly terminal = { columns: 120, rows: 14 };
-	overlay?: { component: Component; options?: OverlayOptions };
-	hidden = false;
+	readonly overlays: Array<{ component: Component; options?: OverlayOptions }> = [];
+	hideCount = 0;
 	requests = 0;
-	render(width: number): string[] { return [`main:${width}`]; }
+	render(width: number): string[] {
+		if (this.terminal.rows < 32) return [`main:${width}`];
+		return Array.from({ length: this.terminal.rows }, (_, index) => `main:${index}:${width}`);
+	}
 	showOverlay(component: Component, options?: OverlayOptions) {
-		this.overlay = { component, options };
+		this.overlays.push({ component, options });
 		return {
-			hide: () => { this.hidden = true; },
+			hide: () => { this.hideCount += 1; },
 			setHidden() {}, isHidden: () => false, focus() {}, unfocus() {}, isFocused: () => false,
 		};
 	}
@@ -47,6 +50,7 @@ function harness() {
 	let widget: (Component & { dispose?(): void }) | undefined;
 	const notifications: string[] = [];
 	let footerWrites = 0;
+	let headerWrites = 0;
 	const ui = {
 		setWidget(_key: string, content: unknown) {
 			widget?.dispose?.();
@@ -56,6 +60,7 @@ function harness() {
 		},
 		notify(message: string) { notifications.push(message); },
 		setFooter() { footerWrites += 1; },
+		setHeader() { headerWrites += 1; },
 	};
 	const ctx = {
 		mode: "tui",
@@ -77,6 +82,7 @@ function harness() {
 	return {
 		pi, events, tui, ctx, commands, notifications,
 		footerWrites: () => footerWrites,
+		headerWrites: () => headerWrites,
 		start: () => lifecycle.get("session_start")?.forEach((handler) => handler({ reason: "startup" }, ctx)),
 		shutdown: () => lifecycle.get("session_shutdown")?.forEach((handler) => handler({ reason: "quit" }, ctx)),
 	};
@@ -102,9 +108,11 @@ describe("SidebarController", () => {
 		h.start();
 		await Promise.resolve();
 		assert.equal(connected, 1);
-		assert.equal(h.tui.overlay?.options?.nonCapturing, true);
+		assert.equal(h.tui.overlays.length, 2);
+		assert.equal(h.tui.overlays[0]?.options?.nonCapturing, true);
+		assert.equal(h.tui.overlays[1]?.options?.anchor, "top-left");
 		assert.deepEqual(h.tui.render(120), ["main:77"]);
-		const sidebarLines = h.tui.overlay?.component.render(42) ?? [];
+		const sidebarLines = h.tui.overlays[0]?.component.render(42) ?? [];
 		assert.equal(sidebarLines.length, 14);
 		assert.ok(sidebarLines.every((line) => visibleWidth(line) === 42));
 		assert.ok(sidebarLines.every((line) => line.startsWith("│")));
@@ -113,10 +121,27 @@ describe("SidebarController", () => {
 		assert.match(sidebarLines.join("\n"), /active/);
 		assert.doesNotMatch(sidebarLines.join("\n"), /│  Activity/);
 		assert.equal(h.footerWrites(), 0);
+		assert.equal(h.headerWrites(), 0);
+
+		h.tui.terminal.columns = 80;
+		h.tui.terminal.rows = 40;
+		const topReserved = h.tui.render(80);
+		assert.equal(topReserved.length, 40);
+		assert.ok(topReserved.slice(0, 8).every((line) => line === " ".repeat(80)));
+		assert.equal(h.tui.overlays[1]?.options?.visible?.(80, 40), true);
+		const topLines = h.tui.overlays[1]?.component.render(80) ?? [];
+		assert.equal(topLines.length, 8);
+		assert.match(topLines.join("\n"), /Example panel/);
+		assert.match(topLines.join("\n"), /active/);
+		const command = h.commands.get("sidebar");
+		assert.ok(command);
+		await command.handler("status", h.ctx);
+		assert.match(h.notifications.at(-1) ?? "", /backend top.*top 8 rows/);
 
 		h.shutdown();
 		assert.equal(disconnected, 1);
-		assert.equal(h.tui.hidden, true);
+		assert.equal(h.tui.hideCount, 2);
+		h.tui.terminal.rows = 14;
 		assert.deepEqual(h.tui.render(120), ["main:120"]);
 	});
 

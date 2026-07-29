@@ -2,9 +2,15 @@ import type { Component, OverlayHandle, OverlayOptions, TUI } from "@earendil-wo
 import type { SidebarPresentation } from "./render.ts";
 
 export type SidebarLayoutMode = "auto" | "dock" | "overlay";
+export type SidebarSurfaceBackend = SidebarPresentation | "top" | "hidden";
 
 export interface SidebarSurfaceComponent extends Component {
 	setPresentation?(presentation: SidebarPresentation): void;
+}
+
+export interface SidebarSurfaceComponents {
+	right: SidebarSurfaceComponent;
+	top: Component;
 }
 
 export interface SidebarSurfaceOptions {
@@ -12,20 +18,27 @@ export interface SidebarSurfaceOptions {
 	width: number;
 	gutter: number;
 	minMainWidth: number;
+	topRows: number;
+	minTopWidth: number;
+	minTopHeight: number;
 	onWarning?(message: string): void;
 }
 
 export interface SidebarSurface {
-	backend(): SidebarPresentation;
+	backend(): SidebarSurfaceBackend;
 	requestRender(): void;
 	dispose(): void;
 }
 
 type RenderFunction = TUI["render"];
 
+function normalizedSize(value: number): number {
+	return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+}
+
 export function createSidebarSurface(
 	tui: TUI,
-	component: SidebarSurfaceComponent,
+	components: SidebarSurfaceComponents,
 	options: SidebarSurfaceOptions,
 ): SidebarSurface {
 	const hadOwnRender = Object.prototype.hasOwnProperty.call(tui, "render");
@@ -33,9 +46,11 @@ export function createSidebarSurface(
 	const previousRender = tui.render;
 	let disposed = false;
 	let warned = false;
-	let dockActive = options.mode === "dock" || (options.mode === "auto" && !hadOwnRender);
+	let reservationActive = options.mode === "dock" || (options.mode === "auto" && !hadOwnRender);
+	let topFrameReserved = false;
 	let wrappedRender: RenderFunction | undefined;
-	let overlayHandle: OverlayHandle | undefined;
+	let rightOverlayHandle: OverlayHandle | undefined;
+	let topOverlayHandle: OverlayHandle | undefined;
 
 	const warnOnce = (message: string) => {
 		if (warned) return;
@@ -46,44 +61,70 @@ export function createSidebarSurface(
 			// Diagnostics must never become a render failure path.
 		}
 	};
-	const visibleAt = (terminalWidth: number) =>
-		!disposed && terminalWidth >= options.minMainWidth + options.gutter + options.width;
-	const syncPresentation = () => component.setPresentation?.(dockActive ? "dock" : "overlay");
+	const layoutAt = (terminalWidth: number, terminalHeight: number): SidebarSurfaceBackend => {
+		if (disposed) return "hidden";
+		const width = normalizedSize(terminalWidth);
+		const height = normalizedSize(terminalHeight);
+		const wide = width >= options.minMainWidth + options.gutter + options.width;
+		if (!reservationActive) return wide ? "overlay" : "hidden";
+		if (wide) return "dock";
+		if (width >= options.minTopWidth && height >= options.minTopHeight) return "top";
+		return "hidden";
+	};
+	const syncRightPresentation = (layout: SidebarSurfaceBackend) => {
+		components.right.setPresentation?.(layout === "dock" ? "dock" : "overlay");
+	};
+	const reserveTopRows = (
+		lines: string[],
+		terminalWidth: number,
+		terminalHeight: number,
+	): { lines: string[]; reserved: boolean } => {
+		const width = normalizedSize(terminalWidth);
+		const height = normalizedSize(terminalHeight);
+		const rows = Math.min(normalizedSize(options.topRows), height);
+		// Pi's normal root fills the viewport. If a transient or foreign root does not,
+		// there is no safe way to identify editor/footer rows: keep it intact and skip
+		// the shelf for this frame instead of covering or repositioning content.
+		if (rows === 0 || lines.length < height) return { lines, reserved: false };
+		const result = [...lines];
+		const viewportStart = Math.max(0, result.length - height);
+		for (let index = 0; index < rows; index += 1) {
+			result[viewportStart + index] = " ".repeat(width);
+		}
+		return { lines: result, reserved: true };
+	};
 
-	if (dockActive) {
+	if (reservationActive) {
 		wrappedRender = function (this: TUI, terminalWidth: number): string[] {
-			if (disposed || !dockActive || !visibleAt(terminalWidth) || terminalWidth <= 0) {
+			const terminalHeight = tui.terminal.rows;
+			const layout = layoutAt(terminalWidth, terminalHeight);
+			syncRightPresentation(layout);
+			topFrameReserved = false;
+			if (disposed || terminalWidth <= 0 || (layout !== "dock" && layout !== "top")) {
 				return previousRender.call(this, terminalWidth);
 			}
-			syncPresentation();
 			try {
-				return previousRender.call(this, Math.max(1, terminalWidth - options.width - options.gutter));
+				if (layout === "dock") {
+					return previousRender.call(
+						this,
+						Math.max(1, terminalWidth - options.width - options.gutter),
+					);
+				}
+				const rendered = previousRender.call(this, terminalWidth);
+				const reservation = reserveTopRows(rendered, terminalWidth, terminalHeight);
+				topFrameReserved = reservation.reserved;
+				return reservation.lines;
 			} catch (error) {
-				dockActive = false;
-				syncPresentation();
+				reservationActive = false;
+				topFrameReserved = false;
+				syncRightPresentation(layoutAt(terminalWidth, terminalHeight));
 				const message = error instanceof Error ? error.message : String(error);
-				warnOnce(`Docked sidebar disabled after a render failure: ${message}`);
+				warnOnce(`Adaptive sidebar reservation disabled after a render failure: ${message}`);
 				queueMicrotask(() => tui.requestRender());
 				return previousRender.call(this, terminalWidth);
 			}
 		};
 		tui.render = wrappedRender;
-	}
-
-	syncPresentation();
-	const overlayOptions: OverlayOptions = {
-		anchor: "top-right",
-		width: options.width,
-		maxHeight: "100%",
-		margin: 0,
-		nonCapturing: true,
-		visible: (terminalWidth) => visibleAt(terminalWidth),
-	};
-	try {
-		overlayHandle = tui.showOverlay(component, overlayOptions);
-	} catch (error) {
-		if (wrappedRender && tui.render === wrappedRender) restoreRender();
-		throw error;
 	}
 
 	function restoreRender(): void {
@@ -95,14 +136,53 @@ export function createSidebarSurface(
 		}
 	}
 
+	const rightOverlayOptions: OverlayOptions = {
+		anchor: "top-right",
+		width: options.width,
+		maxHeight: "100%",
+		margin: 0,
+		nonCapturing: true,
+		visible: (terminalWidth, terminalHeight) => {
+			const layout = layoutAt(terminalWidth, terminalHeight);
+			syncRightPresentation(layout);
+			return layout === "dock" || layout === "overlay";
+		},
+	};
+	const topOverlayOptions: OverlayOptions = {
+		anchor: "top-left",
+		width: "100%",
+		maxHeight: options.topRows,
+		margin: 0,
+		nonCapturing: true,
+		visible: (terminalWidth, terminalHeight) =>
+			layoutAt(terminalWidth, terminalHeight) === "top" && topFrameReserved,
+	};
+	try {
+		rightOverlayHandle = tui.showOverlay(components.right, rightOverlayOptions);
+		topOverlayHandle = tui.showOverlay(components.top, topOverlayOptions);
+	} catch (error) {
+		rightOverlayHandle?.hide();
+		topOverlayHandle?.hide();
+		rightOverlayHandle = undefined;
+		topOverlayHandle = undefined;
+		restoreRender();
+		throw error;
+	}
+
+	const currentBackend = () => layoutAt(tui.terminal.columns, tui.terminal.rows);
+	syncRightPresentation(currentBackend());
+
 	return {
-		backend: () => dockActive ? "dock" : "overlay",
+		backend: currentBackend,
 		requestRender: () => tui.requestRender(),
 		dispose() {
 			if (disposed) return;
 			disposed = true;
-			overlayHandle?.hide();
-			overlayHandle = undefined;
+			topFrameReserved = false;
+			rightOverlayHandle?.hide();
+			topOverlayHandle?.hide();
+			rightOverlayHandle = undefined;
+			topOverlayHandle = undefined;
 			restoreRender();
 			tui.requestRender();
 		},

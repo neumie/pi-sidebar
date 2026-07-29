@@ -15,8 +15,9 @@ session controller ──► bounded panel renderer
         │
         ▼
 sidebar surface
-  ├─ dock: render-width reservation + non-capturing overlay
-  └─ overlay: supported fallback without width reservation
+  ├─ dock: render-width reservation + right overlay
+  ├─ top: visible-row reservation + full-width top overlay
+  └─ overlay: supported wide fallback without reservation
 ```
 
 ## Public seam
@@ -37,11 +38,17 @@ The sidebar itself is one `TUI.showOverlay()` component anchored at top-right wi
 
 The renderer is a flat, unlabeled activity rail: every emitted row has one host-owned dim-gray left divider, two columns of content inset, and one trailing padding column. Panel bodies add two more columns of indentation, so a configured width `W` yields provider body width `W - 6`. That small terminal-specific sub-inset distinguishes live values from section labels while the rail remains the single structural edge. Whitespace separates visible sections; no top, right, bottom, or horizontal-rule chrome is emitted. The empty state names the state and directs the user to start a subagent or background job.
 
+### Absolute-top shelf
+
+When the right rail does not fit and the terminal is at least 32 columns by 32 rows, the same wrapper reserves eight visible rows at terminal row zero. It never prepends lines: it computes the current viewport start, replaces only those eight visible root rows with width-matched blanks, and preserves the root array length and every lower row. Pi's editor and footer therefore stay at their original bottom positions. If a transient or foreign root returns fewer lines than the viewport, reservation is unsafe because row roles are unknowable; that frame remains untouched and its top overlay stays hidden.
+
+A second exact overlay handle renders a non-capturing `width: "100%"` shelf at `top-left`. From 72 columns it packs visible panels into two whitespace-separated columns; below 72 it stacks them in one column. Each panel receives at most two summary body rows. The top component is independent from the right component, so resize-time overlay rendering cannot leak presentation state between surfaces.
+
 ### Overlay fallback
 
-`auto` mode checks whether `render` is already an own property on the TUI instance. That indicates another extension may already wrap layout. Instead of stacking unsupported wrappers, the host uses a normal right overlay and leaves Pi at full width.
+`auto` mode checks whether `render` is already an own property on the TUI instance. That indicates another extension may already wrap layout. Instead of stacking unsupported wrappers, the host uses a normal right overlay on wide terminals and leaves Pi at full width. It deliberately hides on narrow terminals: an unreserved top overlay would cover the conversation.
 
-Narrow terminals hide both presentations rather than leave an unusably small editor.
+Terminals that fit neither the right rail nor the minimum top geometry hide the activity surface.
 
 ## Invariants
 
@@ -60,6 +67,10 @@ Narrow terminals hide both presentations rather than leave an unusably small edi
 13. Emit exactly one host-owned left divider on every sidebar row and no surrounding frame.
 14. Keep every emitted row exactly the configured visible width and never exceed the current terminal height.
 15. Give providers only their usable body width and remaining body-row budget; hidden panels consume no heading or spacing.
+16. Select `dock`, `top`, `overlay`, or `hidden` from current terminal dimensions on every render; resizing requires no remount.
+17. Reserve top space by replacing visible viewport rows, never by prepending lines or moving the editor/footer.
+18. Never show the top overlay unless the same frame successfully reserved its rows; preserve short root frames unchanged rather than guessing which rows belong to the editor or footer.
+19. Keep right and top overlays non-capturing, mutually exclusive, and owned through their exact handles.
 
 ## Integration contracts
 
@@ -82,4 +93,4 @@ The event intentionally omits full job output and paths. The sidebar does not by
 
 ## Future native Pi API
 
-When Pi exposes a column-reserving side-panel API, add a native surface adapter and prefer it through feature detection. Do not change the panel contract, provider protocol, renderer, or integration adapters.
+When Pi exposes native side- or top-panel reservation APIs, add a native surface adapter and prefer it through feature detection. Do not change the panel contract, provider protocol, renderers, or integration adapters.

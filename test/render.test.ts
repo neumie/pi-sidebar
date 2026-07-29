@@ -10,6 +10,7 @@ import {
 	sanitizeSidebarLine,
 	SidebarComponent,
 	type SidebarPresentation,
+	TopSidebarComponent,
 } from "../src/render.ts";
 
 const theme = {
@@ -200,5 +201,95 @@ describe("SidebarComponent", () => {
 		assert.equal(sanitizeSidebarLine("a\x1bPpayload\x1b\\b\x1b_hidden\x1b\\c"), "abc");
 		assert.equal(sanitizeSidebarLine("a\x1b"), "a");
 		assert.equal(sanitizeSidebarLine("a\x90payload\x9cb"), "ab");
+	});
+});
+
+describe("TopSidebarComponent", () => {
+	function topComponent(
+		panels: SidebarPanel[],
+		twoColumnMinWidth = 72,
+	): TopSidebarComponent {
+		return new TopSidebarComponent({
+			theme,
+			getPanels: () => panels,
+			getTerminalHeight: () => 40,
+			getRows: () => 8,
+			getTwoColumnMinWidth: () => twoColumnMinWidth,
+		});
+	}
+
+	it("uses two columns when the top shelf is wide enough", () => {
+		const contexts: Array<{ id: string; context: SidebarPanelRenderContext }> = [];
+		const panels: SidebarPanel[] = [
+			{
+				id: "example.subagents",
+				title: "Subagents",
+				order: 10,
+				render: (context) => {
+					contexts.push({ id: "subagents", context });
+					return ["● reviewer", "2 tools · 18s"];
+				},
+			},
+			{
+				id: "example.jobs",
+				title: "Background jobs",
+				order: 20,
+				render: (context) => {
+					contexts.push({ id: "jobs", context });
+					return ["● Typecheck", "1 running"];
+				},
+			},
+		];
+		const lines = topComponent(panels).render(80);
+		assert.equal(lines.length, 8);
+		assertMinimalRail(lines, 80);
+		assert.match(lines[0]!, /Subagents.*Background jobs/);
+		assert.match(lines[1]!, /● reviewer.*● Typecheck/);
+		assert.match(lines[2]!, /2 tools · 18s.*1 running/);
+		assert.deepEqual(
+			contexts.map(({ id, context }) => ({ id, width: context.width, height: context.height })),
+			[
+				{ id: "subagents", width: 34, height: 2 },
+				{ id: "jobs", width: 34, height: 2 },
+			],
+		);
+		assert.equal(contexts[0]?.context.now, contexts[1]?.context.now);
+	});
+
+	it("stacks the same panels in one column on narrower terminals", () => {
+		const panels: SidebarPanel[] = [
+			{ id: "example.subagents", title: "Subagents", order: 10, render: () => ["● reviewer", "18s"] },
+			{ id: "example.jobs", title: "Background jobs", order: 20, render: () => ["● Typecheck"] },
+		];
+		const lines = topComponent(panels).render(60);
+		assert.equal(lines.length, 8);
+		assertMinimalRail(lines, 60);
+		assert.match(lines[0]!, /^│  Subagents/);
+		assert.match(lines[1]!, /^│    ● reviewer/);
+		assert.equal(lines[3], `│${" ".repeat(59)}`);
+		assert.match(lines[4]!, /^│  Background jobs/);
+		assert.match(lines[5]!, /^│    ● Typecheck/);
+	});
+
+	it("switches from one to two columns exactly at the configured width", () => {
+		const panels: SidebarPanel[] = [
+			{ id: "one", title: "First panel", render: () => ["first", "detail"] },
+			{ id: "two", title: "Second panel", render: () => ["second", "detail"] },
+		];
+		const oneColumn = topComponent(panels).render(71);
+		assert.match(oneColumn[0]!, /First panel/);
+		assert.doesNotMatch(oneColumn[0]!, /Second panel/);
+		assert.match(oneColumn[4]!, /Second panel/);
+		const twoColumns = topComponent(panels).render(72);
+		assert.match(twoColumns[0]!, /First panel.*Second panel/);
+	});
+
+	it("centers an empty directive state within the top shelf", () => {
+		const lines = topComponent([]).render(60);
+		assert.equal(lines.length, 8);
+		assertMinimalRail(lines, 60);
+		assert.match(lines[3]!, /No active work/);
+		assert.match(lines[4]!, /Start a subagent or background job/);
+		assert.doesNotMatch(lines.slice(0, 3).join("\n"), /No active work/);
 	});
 });
