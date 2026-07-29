@@ -131,6 +131,8 @@ describe("SidebarController", () => {
 		assert.equal(h.tui.overlays[1]?.options?.visible?.(80, 40), true);
 		const topLines = h.tui.overlays[1]?.component.render(80) ?? [];
 		assert.equal(topLines.length, 8);
+		assert.ok(topLines.slice(0, -1).every((line) => !line.startsWith("│")));
+		assert.equal(topLines.at(-1), "─".repeat(80));
 		assert.match(topLines.join("\n"), /Example panel/);
 		assert.match(topLines.join("\n"), /active/);
 		const command = h.commands.get("sidebar");

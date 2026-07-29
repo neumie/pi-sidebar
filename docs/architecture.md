@@ -42,7 +42,7 @@ The renderer is a flat, unlabeled activity rail: every emitted row has one host-
 
 When the right rail does not fit and the terminal is at least 32 columns by 32 rows, the same wrapper reserves eight visible rows at terminal row zero. It never prepends lines: it computes the current viewport start, replaces only those eight visible root rows with width-matched blanks, and preserves the root array length and every lower row. Pi's editor and footer therefore stay at their original bottom positions. If a transient or foreign root returns fewer lines than the viewport, reservation is unsafe because row roles are unknowable; that frame remains untouched and its top overlay stays hidden.
 
-A second exact overlay handle renders a non-capturing `width: "100%"` shelf at `top-left`. From 72 columns it packs visible panels into two whitespace-separated columns; below 72 it stacks them in one column. Each panel receives at most two summary body rows. The top component is independent from the right component, so resize-time overlay rendering cannot leak presentation state between surfaces.
+A second exact overlay handle renders a non-capturing `width: "100%"` shelf at `top-left`. Seven rows hold content and the eighth emits one full-width dim-gray bottom divider; the shelf has no left rail. From 72 columns it packs visible panels into two whitespace-separated columns; below 72 it stacks them in one column. Each panel receives at most two summary body rows. The top component is independent from the right component, so resize-time overlay rendering cannot leak presentation state between surfaces.
 
 ### Overlay fallback
 
@@ -64,7 +64,7 @@ Terminals that fit neither the right rail nor the minimum top geometry hide the 
 10. Ignore late async connection completions from stale session generations.
 11. Let missing optional integrations produce no panel rather than warnings.
 12. Keep data adapters on documented event/RPC contracts; do not deep-import peer internals.
-13. Emit exactly one host-owned left divider on every sidebar row and no surrounding frame.
+13. Emit one host-owned structural edge: a left divider on every right-rail row or one full-width bottom divider on the top shelf; never surround either surface with a frame.
 14. Keep every emitted row exactly the configured visible width and never exceed the current terminal height.
 15. Give providers only their usable body width and remaining body-row budget; hidden panels consume no heading or spacing.
 16. Select `dock`, `top`, `overlay`, or `hidden` from current terminal dimensions on every render; resizing requires no remount.

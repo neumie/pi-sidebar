@@ -39,6 +39,13 @@ function assertMinimalRail(lines: string[], width: number): void {
 	assert.doesNotMatch(lines.join("\n"), /[╭╮╰╯─]/);
 }
 
+function assertTopShelf(lines: string[], width: number): void {
+	assert.ok(lines.every((line) => visibleWidth(line) === width));
+	assert.ok(lines.slice(0, -1).every((line) => !line.startsWith("│")));
+	assert.doesNotMatch(lines.slice(0, -1).join("\n"), /[╭╮╰╯─]/);
+	assert.equal(lines.at(-1), "─".repeat(width));
+}
+
 describe("SidebarComponent", () => {
 	it("renders a Helm-inspired single rail with exact provider geometry", () => {
 		const contexts: Array<{ id: string; context: SidebarPanelRenderContext }> = [];
@@ -242,7 +249,7 @@ describe("TopSidebarComponent", () => {
 		];
 		const lines = topComponent(panels).render(80);
 		assert.equal(lines.length, 8);
-		assertMinimalRail(lines, 80);
+		assertTopShelf(lines, 80);
 		assert.match(lines[0]!, /Subagents.*Background jobs/);
 		assert.match(lines[1]!, /● reviewer.*● Typecheck/);
 		assert.match(lines[2]!, /2 tools · 18s.*1 running/);
@@ -250,7 +257,7 @@ describe("TopSidebarComponent", () => {
 			contexts.map(({ id, context }) => ({ id, width: context.width, height: context.height })),
 			[
 				{ id: "subagents", width: 34, height: 2 },
-				{ id: "jobs", width: 34, height: 2 },
+				{ id: "jobs", width: 35, height: 2 },
 			],
 		);
 		assert.equal(contexts[0]?.context.now, contexts[1]?.context.now);
@@ -263,12 +270,12 @@ describe("TopSidebarComponent", () => {
 		];
 		const lines = topComponent(panels).render(60);
 		assert.equal(lines.length, 8);
-		assertMinimalRail(lines, 60);
-		assert.match(lines[0]!, /^│  Subagents/);
-		assert.match(lines[1]!, /^│    ● reviewer/);
-		assert.equal(lines[3], `│${" ".repeat(59)}`);
-		assert.match(lines[4]!, /^│  Background jobs/);
-		assert.match(lines[5]!, /^│    ● Typecheck/);
+		assertTopShelf(lines, 60);
+		assert.match(lines[0]!, /^  Subagents/);
+		assert.match(lines[1]!, /^    ● reviewer/);
+		assert.equal(lines[3], " ".repeat(60));
+		assert.match(lines[4]!, /^  Background jobs/);
+		assert.match(lines[5]!, /^    ● Typecheck/);
 	});
 
 	it("switches from one to two columns exactly at the configured width", () => {
@@ -284,12 +291,33 @@ describe("TopSidebarComponent", () => {
 		assert.match(twoColumns[0]!, /First panel.*Second panel/);
 	});
 
-	it("centers an empty directive state within the top shelf", () => {
+	it("centers an empty directive state above the bottom divider", () => {
 		const lines = topComponent([]).render(60);
 		assert.equal(lines.length, 8);
-		assertMinimalRail(lines, 60);
-		assert.match(lines[3]!, /No active work/);
-		assert.match(lines[4]!, /Start a subagent or background job/);
-		assert.doesNotMatch(lines.slice(0, 3).join("\n"), /No active work/);
+		assertTopShelf(lines, 60);
+		assert.match(lines[2]!, /No active work/);
+		assert.match(lines[3]!, /Start a subagent or background job/);
+		assert.doesNotMatch(lines.slice(0, 2).join("\n"), /No active work/);
+	});
+
+	it("uses the dim theme color only for the structural bottom divider", () => {
+		const dividerColors: string[] = [];
+		const ansiTheme = {
+			fg: (color: string, text: string) => {
+				if (text === "─".repeat(60)) dividerColors.push(color);
+				return text;
+			},
+			bold: (text: string) => text,
+		} as unknown as Theme;
+		const shelf = new TopSidebarComponent({
+			theme: ansiTheme,
+			getPanels: () => [{ id: "active", title: "Active", render: () => ["running"] }],
+			getTerminalHeight: () => 40,
+			getRows: () => 8,
+			getTwoColumnMinWidth: () => 72,
+		});
+		const lines = shelf.render(60);
+		assertTopShelf(lines, 60);
+		assert.deepEqual(dividerColors, ["dim"]);
 	});
 });

@@ -12,21 +12,21 @@ Pi editor and session footer                    │  Background jobs
                                                 │    ● Typecheck · 7s
 
 Narrow + tall terminal
-│  Subagents                         Background jobs
-│    ● reviewer · 18s                  ● Typecheck · 7s
-│
-│
-│
-│
-│
-│
+  Subagents                         Background jobs
+    ● reviewer · 18s                  ● Typecheck · 7s
+
+
+
+
+
+────────────────────────────────────────────────────
 Pi conversation starts below the reserved shelf
 ```
 
 ## Features
 
 - Reserves a right-hand column so Pi's transcript, editor, widgets, and footer reflow instead of rendering underneath it.
-- Minimal chrome: one quiet left divider, sentence-case hierarchy, whitespace between sections, and accent reserved for live activity.
+- Minimal chrome: one quiet structural divider—left for the right rail, bottom for the top shelf—plus whitespace hierarchy and accent reserved for live activity.
 - Does not replace the footer, so it composes with [`pi-footer`](https://github.com/neumie/pi-footer).
 - Zero-config [`pi-subagents`](https://github.com/neumie/pi-subagents) panel through its versioned in-process RPC and lifecycle events.
 - Zero-config [`pi-background-jobs`](https://github.com/neumie/pi-background-jobs) panel through its stable `background-jobs:changed` event.

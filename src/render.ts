@@ -269,8 +269,8 @@ export class TopSidebarComponent implements Component {
 		if (width < MIN_RENDER_WIDTH || rows === 0) return [];
 
 		const theme = this.options.theme;
-		const divider = theme.fg("dim", "│");
-		const contentWidth = Math.max(0, width - DIVIDER_WIDTH - LEFT_PADDING - RIGHT_PADDING);
+		const contentRows = Math.max(0, rows - 1);
+		const contentWidth = Math.max(0, width - LEFT_PADDING - RIGHT_PADDING);
 		const twoColumns = width >= normalizedSize(this.options.getTwoColumnMinWidth());
 		const gap = twoColumns ? TOP_COLUMN_GAP : 0;
 		const firstWidth = twoColumns ? Math.floor((contentWidth - gap) / 2) : contentWidth;
@@ -289,7 +289,7 @@ export class TopSidebarComponent implements Component {
 			for (const candidate of candidates) {
 				const target = columns[candidate.index]!;
 				const separatorRows = target.length > 0 ? 1 : 0;
-				const bodyHeight = Math.min(TOP_PANEL_LINES, rows - target.length - separatorRows - 1);
+				const bodyHeight = Math.min(TOP_PANEL_LINES, contentRows - target.length - separatorRows - 1);
 				if (bodyHeight <= 0) continue;
 				attempted = true;
 				const titleWidth = columnWidths[candidate.index]!;
@@ -306,38 +306,35 @@ export class TopSidebarComponent implements Component {
 		}
 
 		const output: string[] = [];
+		const contentRow = (content: unknown = "") =>
+			`${" ".repeat(LEFT_PADDING)}${bounded(content, contentWidth, true)}${" ".repeat(RIGHT_PADDING)}`;
 		if (renderedPanels === 0) {
-			const stateRow = Math.max(0, Math.floor((rows - 2) / 2));
+			const stateRow = Math.max(0, Math.floor((contentRows - 2) / 2));
 			const centered = (value: unknown) => {
 				const text = bounded(value, contentWidth);
 				const left = Math.max(0, Math.floor((contentWidth - visibleWidth(text)) / 2));
 				return bounded(`${" ".repeat(left)}${text}`, contentWidth, true);
 			};
-			for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
+			for (let rowIndex = 0; rowIndex < contentRows; rowIndex += 1) {
 				let content = "";
 				if (rowIndex === stateRow) content = centered(theme.fg("muted", theme.bold("No active work")));
 				if (rowIndex === stateRow + 1) {
 					content = centered(theme.fg("dim", "Start a subagent or background job"));
 				}
-				output.push(`${divider}${" ".repeat(LEFT_PADDING)}${bounded(content, contentWidth, true)}${" ".repeat(RIGHT_PADDING)}`);
+				output.push(contentRow(content));
 			}
-			return output;
+		} else {
+			const renderCell = (cell: CellLine | undefined, columnWidth: number) => {
+				const indent = Math.min(Math.max(0, cell?.indent ?? 0), columnWidth);
+				return `${" ".repeat(indent)}${bounded(cell?.content ?? "", columnWidth - indent, true)}`;
+			};
+			for (let rowIndex = 0; rowIndex < contentRows; rowIndex += 1) {
+				const cells = columnWidths.map((columnWidth, columnIndex) =>
+					renderCell(columns[columnIndex]?.[rowIndex], columnWidth));
+				output.push(contentRow(cells.join(" ".repeat(gap))));
+			}
 		}
-
-		const renderCell = (cell: CellLine | undefined, columnWidth: number) => {
-			const indent = Math.min(Math.max(0, cell?.indent ?? 0), columnWidth);
-			return `${" ".repeat(indent)}${bounded(cell?.content ?? "", columnWidth - indent, true)}`;
-		};
-		for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
-			const cells = columnWidths.map((columnWidth, columnIndex) =>
-				renderCell(columns[columnIndex]?.[rowIndex], columnWidth));
-			output.push([
-				divider,
-				" ".repeat(LEFT_PADDING),
-				cells.join(" ".repeat(gap)),
-				" ".repeat(RIGHT_PADDING),
-			].join(""));
-		}
+		output.push(theme.fg("dim", "─".repeat(width)));
 		return output;
 	}
 }
