@@ -137,6 +137,12 @@ function bounded(value: unknown, width: number, pad = false): string {
 	return truncateToWidth(sanitizeSidebarLine(value), Math.max(0, width), "…", pad);
 }
 
+function centered(value: unknown, width: number): string {
+	const text = bounded(value, width);
+	const left = Math.max(0, Math.floor((width - visibleWidth(text)) / 2));
+	return bounded(`${" ".repeat(left)}${text}`, width, true);
+}
+
 function hasVisibleContent(value: unknown): boolean {
 	const plain = sanitizeSidebarLine(value).replace(SGR, "").trim();
 	return plain.length > 0 && visibleWidth(plain) > 0;
@@ -241,10 +247,16 @@ export class SidebarComponent implements Component {
 		}
 
 		if (renderedPanels === 0 && lines.length < panelLimit) {
-			lines.push(row(theme.fg("muted", theme.bold("No active work"))));
-			if (lines.length < panelLimit) {
-				lines.push(row(theme.fg("dim", "Start a subagent or background job"), BODY_INDENT));
+			const emptyState = [
+				theme.fg("muted", theme.bold("No active work")),
+				theme.fg("dim", "Start a subagent or background job"),
+			].slice(0, panelLimit);
+			if (presentation === "dock") {
+				lines.length = 0;
+				const topPadding = Math.floor((panelLimit - emptyState.length) / 2);
+				while (lines.length < topPadding) lines.push(row());
 			}
+			for (const content of emptyState) lines.push(row(centered(content, contentWidth)));
 		}
 		if (presentation === "dock") {
 			while (lines.length < panelLimit) lines.push(row());

@@ -102,6 +102,19 @@ describe("SidebarComponent", () => {
 		assert.equal(contexts[0]?.context.now, contexts[1]?.context.now);
 	});
 
+	it("centers the empty state within the dock", () => {
+		const lines = component([], 12).render(42);
+		const blank = `│${" ".repeat(41)}`;
+
+		assert.equal(lines.length, 12);
+		assertMinimalRail(lines, 42);
+		assert.ok(lines.slice(0, 4).every((line) => line === blank));
+		assert.match(lines[4]!, /^│ {14}No active work/);
+		assert.match(lines[5]!, /^│ {4}Start a subagent or background job/);
+		assert.ok(lines.slice(6, 11).every((line) => line === blank));
+		assert.match(lines[11]!, /^│  \/sidebar/);
+	});
+
 	it("hides empty, whitespace-only, and SGR-only panels", () => {
 		const panels: SidebarPanel[] = [
 			{ id: "example.empty", title: "Empty", render: () => [] },
