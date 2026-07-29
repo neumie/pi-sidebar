@@ -1,8 +1,8 @@
 import type { Component, OverlayHandle, OverlayOptions, TUI } from "@earendil-works/pi-tui";
-import type { SidebarPresentation } from "./render.ts";
+import type { NarrowSidebarPosition, SidebarPresentation } from "./render.ts";
 
 export type SidebarLayoutMode = "auto" | "dock" | "overlay";
-export type SidebarSurfaceBackend = SidebarPresentation | "top" | "hidden";
+export type SidebarSurfaceBackend = SidebarPresentation | NarrowSidebarPosition | "hidden";
 
 export interface SidebarSurfaceComponent extends Component {
 	setPresentation?(presentation: SidebarPresentation): void;
@@ -11,6 +11,7 @@ export interface SidebarSurfaceComponent extends Component {
 export interface SidebarSurfaceComponents {
 	right: SidebarSurfaceComponent;
 	top: Component;
+	bottom: Component;
 }
 
 export interface SidebarSurfaceOptions {
@@ -18,9 +19,10 @@ export interface SidebarSurfaceOptions {
 	width: number;
 	gutter: number;
 	minMainWidth: number;
-	topRows: number;
-	minTopWidth: number;
-	minTopHeight: number;
+	narrowPosition: NarrowSidebarPosition;
+	narrowRows: number;
+	minNarrowWidth: number;
+	minNarrowHeight: number;
 	onWarning?(message: string): void;
 }
 
@@ -31,6 +33,7 @@ export interface SidebarSurface {
 }
 
 type RenderFunction = TUI["render"];
+type Reservation = { lines: string[]; reserved: boolean };
 
 function normalizedSize(value: number): number {
 	return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
@@ -48,9 +51,11 @@ export function createSidebarSurface(
 	let warned = false;
 	let reservationActive = options.mode === "dock" || (options.mode === "auto" && !hadOwnRender);
 	let topFrameReserved = false;
+	let bottomFrameReserved = false;
 	let wrappedRender: RenderFunction | undefined;
 	let rightOverlayHandle: OverlayHandle | undefined;
 	let topOverlayHandle: OverlayHandle | undefined;
+	let bottomOverlayHandle: OverlayHandle | undefined;
 
 	const warnOnce = (message: string) => {
 		if (warned) return;
@@ -68,23 +73,27 @@ export function createSidebarSurface(
 		const wide = width >= options.minMainWidth + options.gutter + options.width;
 		if (!reservationActive) return wide ? "overlay" : "hidden";
 		if (wide) return "dock";
-		if (width >= options.minTopWidth && height >= options.minTopHeight) return "top";
+		if (width >= options.minNarrowWidth && height >= options.minNarrowHeight) {
+			return options.narrowPosition;
+		}
 		return "hidden";
 	};
 	const syncRightPresentation = (layout: SidebarSurfaceBackend) => {
 		components.right.setPresentation?.(layout === "dock" ? "dock" : "overlay");
 	};
+	const reservationGeometry = (terminalWidth: number, terminalHeight: number) => ({
+		width: normalizedSize(terminalWidth),
+		height: normalizedSize(terminalHeight),
+		rows: Math.min(normalizedSize(options.narrowRows), normalizedSize(terminalHeight)),
+	});
 	const reserveTopRows = (
 		lines: string[],
 		terminalWidth: number,
 		terminalHeight: number,
-	): { lines: string[]; reserved: boolean } => {
-		const width = normalizedSize(terminalWidth);
-		const height = normalizedSize(terminalHeight);
-		const rows = Math.min(normalizedSize(options.topRows), height);
+	): Reservation => {
+		const { width, height, rows } = reservationGeometry(terminalWidth, terminalHeight);
 		// Pi's normal root fills the viewport. If a transient or foreign root does not,
-		// there is no safe way to identify editor/footer rows: keep it intact and skip
-		// the shelf for this frame instead of covering or repositioning content.
+		// row roles are unknowable: keep it intact and skip the shelf for this frame.
 		if (rows === 0 || lines.length < height) return { lines, reserved: false };
 		const result = [...lines];
 		const viewportStart = Math.max(0, result.length - height);
@@ -93,6 +102,18 @@ export function createSidebarSurface(
 		}
 		return { lines: result, reserved: true };
 	};
+	const reserveBottomRows = (
+		lines: string[],
+		terminalWidth: number,
+		terminalHeight: number,
+	): Reservation => {
+		const { width, height, rows } = reservationGeometry(terminalWidth, terminalHeight);
+		if (rows === 0 || lines.length < height) return { lines, reserved: false };
+		return {
+			lines: [...lines, ...Array.from({ length: rows }, () => " ".repeat(width))],
+			reserved: true,
+		};
+	};
 
 	if (reservationActive) {
 		wrappedRender = function (this: TUI, terminalWidth: number): string[] {
@@ -100,7 +121,12 @@ export function createSidebarSurface(
 			const layout = layoutAt(terminalWidth, terminalHeight);
 			syncRightPresentation(layout);
 			topFrameReserved = false;
-			if (disposed || terminalWidth <= 0 || (layout !== "dock" && layout !== "top")) {
+			bottomFrameReserved = false;
+			if (
+				disposed
+				|| terminalWidth <= 0
+				|| (layout !== "dock" && layout !== "top" && layout !== "bottom")
+			) {
 				return previousRender.call(this, terminalWidth);
 			}
 			try {
@@ -111,12 +137,16 @@ export function createSidebarSurface(
 					);
 				}
 				const rendered = previousRender.call(this, terminalWidth);
-				const reservation = reserveTopRows(rendered, terminalWidth, terminalHeight);
-				topFrameReserved = reservation.reserved;
+				const reservation = layout === "top"
+					? reserveTopRows(rendered, terminalWidth, terminalHeight)
+					: reserveBottomRows(rendered, terminalWidth, terminalHeight);
+				topFrameReserved = layout === "top" && reservation.reserved;
+				bottomFrameReserved = layout === "bottom" && reservation.reserved;
 				return reservation.lines;
 			} catch (error) {
 				reservationActive = false;
 				topFrameReserved = false;
+				bottomFrameReserved = false;
 				syncRightPresentation(layoutAt(terminalWidth, terminalHeight));
 				const message = error instanceof Error ? error.message : String(error);
 				warnOnce(`Adaptive sidebar reservation disabled after a render failure: ${message}`);
@@ -151,20 +181,32 @@ export function createSidebarSurface(
 	const topOverlayOptions: OverlayOptions = {
 		anchor: "top-left",
 		width: "100%",
-		maxHeight: options.topRows,
+		maxHeight: options.narrowRows,
 		margin: 0,
 		nonCapturing: true,
 		visible: (terminalWidth, terminalHeight) =>
 			layoutAt(terminalWidth, terminalHeight) === "top" && topFrameReserved,
 	};
+	const bottomOverlayOptions: OverlayOptions = {
+		anchor: "bottom-left",
+		width: "100%",
+		maxHeight: options.narrowRows,
+		margin: 0,
+		nonCapturing: true,
+		visible: (terminalWidth, terminalHeight) =>
+			layoutAt(terminalWidth, terminalHeight) === "bottom" && bottomFrameReserved,
+	};
 	try {
 		rightOverlayHandle = tui.showOverlay(components.right, rightOverlayOptions);
 		topOverlayHandle = tui.showOverlay(components.top, topOverlayOptions);
+		bottomOverlayHandle = tui.showOverlay(components.bottom, bottomOverlayOptions);
 	} catch (error) {
 		rightOverlayHandle?.hide();
 		topOverlayHandle?.hide();
+		bottomOverlayHandle?.hide();
 		rightOverlayHandle = undefined;
 		topOverlayHandle = undefined;
+		bottomOverlayHandle = undefined;
 		restoreRender();
 		throw error;
 	}
@@ -179,10 +221,13 @@ export function createSidebarSurface(
 			if (disposed) return;
 			disposed = true;
 			topFrameReserved = false;
+			bottomFrameReserved = false;
 			rightOverlayHandle?.hide();
 			topOverlayHandle?.hide();
+			bottomOverlayHandle?.hide();
 			rightOverlayHandle = undefined;
 			topOverlayHandle = undefined;
+			bottomOverlayHandle = undefined;
 			restoreRender();
 			tui.requestRender();
 		},

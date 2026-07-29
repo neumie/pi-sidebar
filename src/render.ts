@@ -15,16 +15,19 @@ export interface SidebarComponentOptions {
 	getPresentation(): SidebarPresentation;
 }
 
-export interface TopSidebarComponentOptions {
+export type NarrowSidebarPosition = "top" | "bottom";
+
+export interface NarrowSidebarComponentOptions {
 	theme: Theme;
 	getPanels(): readonly SidebarPanel[];
 	getTerminalHeight(): number;
 	getRows(): number;
 	getTwoColumnMinWidth(): number;
+	getPosition(): NarrowSidebarPosition;
 }
 
 const MAX_PANEL_LINES = 24;
-const TOP_PANEL_LINES = 2;
+const SHELF_PANEL_LINES = 2;
 const MAX_SOURCE_CHARS = 4_096;
 const MIN_RENDER_WIDTH = 12;
 const OVERLAY_MAX_HEIGHT = 26;
@@ -32,7 +35,7 @@ const DIVIDER_WIDTH = 1;
 const LEFT_PADDING = 2;
 const RIGHT_PADDING = 1;
 const BODY_INDENT = 2;
-const TOP_COLUMN_GAP = 4;
+const SHELF_COLUMN_GAP = 4;
 const ESC = "\x1b";
 const BEL = "\x07";
 const C1_ST = "\x9c";
@@ -252,9 +255,9 @@ export class SidebarComponent implements Component {
 	}
 }
 
-/** Fixed-height absolute-top shelf used by narrow, tall terminals. */
-export class TopSidebarComponent implements Component {
-	constructor(private readonly options: TopSidebarComponentOptions) {}
+/** Fixed-height shelf used above or below Pi on narrow, tall terminals. */
+export class NarrowSidebarComponent implements Component {
+	constructor(private readonly options: NarrowSidebarComponentOptions) {}
 
 	invalidate(): void {
 		// Rendering is intentionally stateless.
@@ -269,10 +272,11 @@ export class TopSidebarComponent implements Component {
 		if (width < MIN_RENDER_WIDTH || rows === 0) return [];
 
 		const theme = this.options.theme;
+		const position = this.options.getPosition();
 		const contentRows = Math.max(0, rows - 1);
 		const contentWidth = Math.max(0, width - LEFT_PADDING - RIGHT_PADDING);
 		const twoColumns = width >= normalizedSize(this.options.getTwoColumnMinWidth());
-		const gap = twoColumns ? TOP_COLUMN_GAP : 0;
+		const gap = twoColumns ? SHELF_COLUMN_GAP : 0;
 		const firstWidth = twoColumns ? Math.floor((contentWidth - gap) / 2) : contentWidth;
 		const columnWidths = twoColumns
 			? [firstWidth, contentWidth - gap - firstWidth]
@@ -289,7 +293,7 @@ export class TopSidebarComponent implements Component {
 			for (const candidate of candidates) {
 				const target = columns[candidate.index]!;
 				const separatorRows = target.length > 0 ? 1 : 0;
-				const bodyHeight = Math.min(TOP_PANEL_LINES, contentRows - target.length - separatorRows - 1);
+				const bodyHeight = Math.min(SHELF_PANEL_LINES, contentRows - target.length - separatorRows - 1);
 				if (bodyHeight <= 0) continue;
 				attempted = true;
 				const titleWidth = columnWidths[candidate.index]!;
@@ -305,7 +309,8 @@ export class TopSidebarComponent implements Component {
 			if (!attempted) break;
 		}
 
-		const output: string[] = [];
+		const divider = theme.fg("dim", "─".repeat(width));
+		const output: string[] = position === "bottom" ? [divider] : [];
 		const contentRow = (content: unknown = "") =>
 			`${" ".repeat(LEFT_PADDING)}${bounded(content, contentWidth, true)}${" ".repeat(RIGHT_PADDING)}`;
 		if (renderedPanels === 0) {
@@ -334,7 +339,7 @@ export class TopSidebarComponent implements Component {
 				output.push(contentRow(cells.join(" ".repeat(gap))));
 			}
 		}
-		output.push(theme.fg("dim", "─".repeat(width)));
+		if (position === "top") output.push(divider);
 		return output;
 	}
 }

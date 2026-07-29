@@ -89,7 +89,7 @@ function harness() {
 }
 
 describe("SidebarController", () => {
-	it("connects panels, mounts a dock without footer ownership, and disposes cleanly", async () => {
+	it("mounts right and configurable narrow docks without footer ownership", async () => {
 		const h = harness();
 		let connected = 0;
 		let disconnected = 0;
@@ -108,9 +108,10 @@ describe("SidebarController", () => {
 		h.start();
 		await Promise.resolve();
 		assert.equal(connected, 1);
-		assert.equal(h.tui.overlays.length, 2);
+		assert.equal(h.tui.overlays.length, 3);
 		assert.equal(h.tui.overlays[0]?.options?.nonCapturing, true);
 		assert.equal(h.tui.overlays[1]?.options?.anchor, "top-left");
+		assert.equal(h.tui.overlays[2]?.options?.anchor, "bottom-left");
 		assert.deepEqual(h.tui.render(120), ["main:77"]);
 		const sidebarLines = h.tui.overlays[0]?.component.render(42) ?? [];
 		assert.equal(sidebarLines.length, 14);
@@ -125,29 +126,38 @@ describe("SidebarController", () => {
 
 		h.tui.terminal.columns = 80;
 		h.tui.terminal.rows = 40;
-		const topReserved = h.tui.render(80);
-		assert.equal(topReserved.length, 40);
-		assert.ok(topReserved.slice(0, 8).every((line) => line === " ".repeat(80)));
-		assert.equal(h.tui.overlays[1]?.options?.visible?.(80, 40), true);
-		const topLines = h.tui.overlays[1]?.component.render(80) ?? [];
-		assert.equal(topLines.length, 8);
-		assert.ok(topLines.slice(0, -1).every((line) => !line.startsWith("│")));
-		assert.equal(topLines.at(-1), "─".repeat(80));
-		assert.match(topLines.join("\n"), /Example panel/);
-		assert.match(topLines.join("\n"), /active/);
+		const bottomReserved = h.tui.render(80);
+		assert.equal(bottomReserved.length, 48);
+		assert.ok(bottomReserved.slice(-8).every((line) => line === " ".repeat(80)));
+		assert.equal(h.tui.overlays[1]?.options?.visible?.(80, 40), false);
+		assert.equal(h.tui.overlays[2]?.options?.visible?.(80, 40), true);
+		const bottomLines = h.tui.overlays[2]?.component.render(80) ?? [];
+		assert.equal(bottomLines.length, 8);
+		assert.equal(bottomLines[0], "─".repeat(80));
+		assert.ok(bottomLines.slice(1).every((line) => !line.startsWith("│")));
+		assert.match(bottomLines.join("\n"), /Example panel/);
+		assert.match(bottomLines.join("\n"), /active/);
 		const command = h.commands.get("sidebar");
 		assert.ok(command);
 		await command.handler("status", h.ctx);
-		assert.match(h.notifications.at(-1) ?? "", /backend top.*top 8 rows/);
+		assert.match(h.notifications.at(-1) ?? "", /backend bottom.*narrow bottom\/8 rows/);
+
+		await command.handler("narrow top", h.ctx);
+		const topReserved = h.tui.render(80);
+		assert.equal(topReserved.length, 40);
+		assert.ok(topReserved.slice(0, 8).every((line) => line === " ".repeat(80)));
+		assert.equal(h.tui.overlays.at(-2)?.options?.visible?.(80, 40), true);
+		assert.equal(h.tui.overlays.at(-1)?.options?.visible?.(80, 40), false);
+		assert.match(h.notifications.at(-1) ?? "", /backend top.*narrow top\/8 rows/);
 
 		h.shutdown();
 		assert.equal(disconnected, 1);
-		assert.equal(h.tui.hideCount, 2);
+		assert.equal(h.tui.hideCount, 6);
 		h.tui.terminal.rows = 14;
 		assert.deepEqual(h.tui.render(120), ["main:120"]);
 	});
 
-	it("rejects partially parsed width arguments", async () => {
+	it("rejects malformed width and narrow arguments", async () => {
 		const h = harness();
 		new SidebarController(h.pi).register();
 		h.start();
@@ -155,7 +165,8 @@ describe("SidebarController", () => {
 		assert.ok(command);
 		await command.handler("width 42junk", h.ctx);
 		await command.handler("width 42 extra", h.ctx);
-		assert.equal(h.notifications.filter((message) => /Usage|integer/.test(message)).length, 2);
+		await command.handler("narrow middle", h.ctx);
+		assert.equal(h.notifications.filter((message) => /Usage|integer|top or bottom/.test(message)).length, 3);
 		h.shutdown();
 	});
 });

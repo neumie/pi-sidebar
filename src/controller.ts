@@ -18,7 +18,11 @@ import {
 	isUnregisterEnvelope,
 	type SidebarRegisterEnvelope,
 } from "./protocol.ts";
-import { SidebarComponent, TopSidebarComponent } from "./render.ts";
+import {
+	NarrowSidebarComponent,
+	SidebarComponent,
+	type NarrowSidebarPosition,
+} from "./render.ts";
 import {
 	createSidebarSurface,
 	type SidebarLayoutMode,
@@ -40,7 +44,7 @@ interface SessionRuntime {
 	generation: number;
 	ctx: ExtensionContext;
 	surface?: SidebarSurface;
-	components?: [SidebarComponent, TopSidebarComponent];
+	components?: [SidebarComponent, NarrowSidebarComponent, NarrowSidebarComponent];
 	tick?: ReturnType<typeof setInterval>;
 }
 
@@ -50,10 +54,11 @@ interface SidebarSettings {
 	width: number;
 	gutter: number;
 	minMainWidth: number;
-	topRows: number;
-	minTopWidth: number;
-	minTopHeight: number;
-	topTwoColumnWidth: number;
+	narrowPosition: NarrowSidebarPosition;
+	narrowRows: number;
+	minNarrowWidth: number;
+	minNarrowHeight: number;
+	narrowTwoColumnWidth: number;
 }
 
 function integerEnv(name: string, fallback: number, minimum: number, maximum: number): number {
@@ -61,20 +66,54 @@ function integerEnv(name: string, fallback: number, minimum: number, maximum: nu
 	return Number.isFinite(parsed) ? Math.min(maximum, Math.max(minimum, parsed)) : fallback;
 }
 
+function aliasedIntegerEnv(
+	name: string,
+	legacyName: string,
+	fallback: number,
+	minimum: number,
+	maximum: number,
+): number {
+	return process.env[name] === undefined
+		? integerEnv(legacyName, fallback, minimum, maximum)
+		: integerEnv(name, fallback, minimum, maximum);
+}
+
 function initialSettings(): SidebarSettings {
 	const rawMode = process.env.PI_SIDEBAR_MODE;
 	const mode: SidebarLayoutMode = rawMode === "dock" || rawMode === "overlay" ? rawMode : "auto";
-	const topRows = integerEnv("PI_SIDEBAR_TOP_ROWS", 8, 4, 16);
+	const narrowPosition: NarrowSidebarPosition = process.env.PI_SIDEBAR_NARROW_POSITION === "top"
+		? "top"
+		: "bottom";
+	const narrowRows = aliasedIntegerEnv("PI_SIDEBAR_NARROW_ROWS", "PI_SIDEBAR_TOP_ROWS", 8, 4, 16);
 	return {
 		enabled: process.env.PI_SIDEBAR_ENABLED !== "0",
 		mode,
 		width: integerEnv("PI_SIDEBAR_WIDTH", 42, 24, 80),
 		gutter: integerEnv("PI_SIDEBAR_GUTTER", 1, 0, 4),
 		minMainWidth: integerEnv("PI_SIDEBAR_MIN_MAIN_WIDTH", 64, 40, 160),
-		topRows,
-		minTopWidth: integerEnv("PI_SIDEBAR_TOP_MIN_WIDTH", 32, 24, 120),
-		minTopHeight: integerEnv("PI_SIDEBAR_TOP_MIN_HEIGHT", 32, topRows + 8, 160),
-		topTwoColumnWidth: integerEnv("PI_SIDEBAR_TOP_TWO_COLUMN_WIDTH", 72, 48, 200),
+		narrowPosition,
+		narrowRows,
+		minNarrowWidth: aliasedIntegerEnv(
+			"PI_SIDEBAR_NARROW_MIN_WIDTH",
+			"PI_SIDEBAR_TOP_MIN_WIDTH",
+			32,
+			24,
+			120,
+		),
+		minNarrowHeight: aliasedIntegerEnv(
+			"PI_SIDEBAR_NARROW_MIN_HEIGHT",
+			"PI_SIDEBAR_TOP_MIN_HEIGHT",
+			32,
+			narrowRows + 8,
+			160,
+		),
+		narrowTwoColumnWidth: aliasedIntegerEnv(
+			"PI_SIDEBAR_NARROW_TWO_COLUMN_WIDTH",
+			"PI_SIDEBAR_TOP_TWO_COLUMN_WIDTH",
+			72,
+			48,
+			200,
+		),
 	};
 }
 
@@ -143,8 +182,14 @@ export class SidebarController {
 						return;
 					}
 					this.settings.mode = value;
+				} else if (action === "narrow" && parts.length === 2) {
+					if (value !== "top" && value !== "bottom") {
+						ctx.ui.notify("Sidebar narrow position must be top or bottom.", "warning");
+						return;
+					}
+					this.settings.narrowPosition = value;
 				} else {
-					ctx.ui.notify("Usage: /sidebar [on|off|toggle|status|width 24-80|mode auto|dock|overlay]", "warning");
+					ctx.ui.notify("Usage: /sidebar [on|off|toggle|status|width 24-80|mode auto|dock|overlay|narrow top|bottom]", "warning");
 					return;
 				}
 				this.remount();
@@ -155,7 +200,7 @@ export class SidebarController {
 
 	private statusLine(): string {
 		const backend = this.session?.surface?.backend() ?? (this.settings.enabled ? "not mounted" : "hidden");
-		return `Sidebar ${this.settings.enabled ? "on" : "off"} · mode ${this.settings.mode} · backend ${backend} · width ${this.settings.width} · top ${this.settings.topRows} rows · ${this.registrations.size} panels`;
+		return `Sidebar ${this.settings.enabled ? "on" : "off"} · mode ${this.settings.mode} · backend ${backend} · width ${this.settings.width} · narrow ${this.settings.narrowPosition}/${this.settings.narrowRows} rows · ${this.registrations.size} panels`;
 	}
 
 	private startSession(ctx: ExtensionContext): void {
@@ -185,26 +230,35 @@ export class SidebarController {
 				getTerminalHeight: () => tui.terminal.rows,
 				getPresentation: () => "overlay",
 			});
-			const topComponent = new TopSidebarComponent({
+			const narrowOptions = {
 				theme: theme as Theme,
 				getPanels,
 				getTerminalHeight: () => tui.terminal.rows,
-				getRows: () => this.settings.topRows,
-				getTwoColumnMinWidth: () => this.settings.topTwoColumnWidth,
+				getRows: () => this.settings.narrowRows,
+				getTwoColumnMinWidth: () => this.settings.narrowTwoColumnWidth,
+			};
+			const topComponent = new NarrowSidebarComponent({
+				...narrowOptions,
+				getPosition: () => "top",
 			});
-			runtime.components = [rightComponent, topComponent];
+			const bottomComponent = new NarrowSidebarComponent({
+				...narrowOptions,
+				getPosition: () => "bottom",
+			});
+			runtime.components = [rightComponent, topComponent, bottomComponent];
 			try {
 				runtime.surface = createSidebarSurface(
 					tui as TUI,
-					{ right: rightComponent, top: topComponent },
+					{ right: rightComponent, top: topComponent, bottom: bottomComponent },
 					{
 						mode: this.settings.mode,
 						width: this.settings.width,
 						gutter: this.settings.gutter,
 						minMainWidth: this.settings.minMainWidth,
-						topRows: this.settings.topRows,
-						minTopWidth: this.settings.minTopWidth,
-						minTopHeight: this.settings.minTopHeight,
+						narrowPosition: this.settings.narrowPosition,
+						narrowRows: this.settings.narrowRows,
+						minNarrowWidth: this.settings.minNarrowWidth,
+						minNarrowHeight: this.settings.minNarrowHeight,
 						onWarning: (message) => runtime.ctx.ui.notify(message, "warning"),
 					},
 				);

@@ -16,7 +16,8 @@ session controller ──► bounded panel renderer
         ▼
 sidebar surface
   ├─ dock: render-width reservation + right overlay
-  ├─ top: visible-row reservation + full-width top overlay
+  ├─ top: visible-row replacement + full-width top overlay
+  ├─ bottom: appended-row reservation + full-width bottom overlay
   └─ overlay: supported wide fallback without reservation
 ```
 
@@ -38,17 +39,22 @@ The sidebar itself is one `TUI.showOverlay()` component anchored at top-right wi
 
 The renderer is a flat, unlabeled activity rail: every emitted row has one host-owned dim-gray left divider, two columns of content inset, and one trailing padding column. Panel bodies add two more columns of indentation, so a configured width `W` yields provider body width `W - 6`. That small terminal-specific sub-inset distinguishes live values from section labels while the rail remains the single structural edge. Whitespace separates visible sections; no top, right, bottom, or horizontal-rule chrome is emitted. The empty state names the state and directs the user to start a subagent or background job.
 
-### Absolute-top shelf
+### Configurable narrow shelf
 
-When the right rail does not fit and the terminal is at least 32 columns by 32 rows, the same wrapper reserves eight visible rows at terminal row zero. It never prepends lines: it computes the current viewport start, replaces only those eight visible root rows with width-matched blanks, and preserves the root array length and every lower row. Pi's editor and footer therefore stay at their original bottom positions. If a transient or foreign root returns fewer lines than the viewport, reservation is unsafe because row roles are unknowable; that frame remains untouched and its top overlay stays hidden.
+When the right rail does not fit and the terminal is at least 32 columns by 32 rows, the wrapper reserves eight full-width rows using the configured narrow position.
 
-A second exact overlay handle renders a non-capturing `width: "100%"` shelf at `top-left`. Seven rows hold content and the eighth emits one full-width dim-gray bottom divider; the shelf has no left rail. From 72 columns it packs visible panels into two whitespace-separated columns; below 72 it stacks them in one column. Each panel receives at most two summary body rows. The top component is independent from the right component, so resize-time overlay rendering cannot leak presentation state between surfaces.
+- `top` computes the current viewport start and replaces its first eight root rows with width-matched blanks. Root length and lower-row positions stay unchanged.
+- `bottom` appends eight blank rows after Pi's root. The viewport advances by eight, moving Pi's editor and footer upward while preserving their order and placing the shelf physically below the footer.
+
+Transient or foreign roots shorter than the viewport are left untouched because their row roles are unknowable. Exact non-capturing overlays at `top-left` and `bottom-left` are independently mounted but mutually gated; only the configured, successfully reserved position renders in a frame.
+
+The shared narrow renderer uses seven content rows and one full-width dim-gray divider: below content in `top`, above content in `bottom`. From 72 columns it packs visible panels into two whitespace-separated columns; below 72 it stacks them in one column. Each panel receives at most two summary body rows.
 
 ### Overlay fallback
 
-`auto` mode checks whether `render` is already an own property on the TUI instance. That indicates another extension may already wrap layout. Instead of stacking unsupported wrappers, the host uses a normal right overlay on wide terminals and leaves Pi at full width. It deliberately hides on narrow terminals: an unreserved top overlay would cover the conversation.
+`auto` mode checks whether `render` is already an own property on the TUI instance. That indicates another extension may already wrap layout. Instead of stacking unsupported wrappers, the host uses a normal right overlay on wide terminals and leaves Pi at full width. It deliberately hides on narrow terminals: an unreserved top or bottom overlay would cover Pi content.
 
-Terminals that fit neither the right rail nor the minimum top geometry hide the activity surface.
+Terminals that fit neither the right rail nor the minimum narrow geometry hide the activity surface.
 
 ## Invariants
 
@@ -64,13 +70,13 @@ Terminals that fit neither the right rail nor the minimum top geometry hide the 
 10. Ignore late async connection completions from stale session generations.
 11. Let missing optional integrations produce no panel rather than warnings.
 12. Keep data adapters on documented event/RPC contracts; do not deep-import peer internals.
-13. Emit one host-owned structural edge: a left divider on every right-rail row or one full-width bottom divider on the top shelf; never surround either surface with a frame.
+13. Emit one host-owned structural edge: left for the right rail, below a top shelf, or above a bottom shelf; never surround a surface with a frame.
 14. Keep every emitted row exactly the configured visible width and never exceed the current terminal height.
 15. Give providers only their usable body width and remaining body-row budget; hidden panels consume no heading or spacing.
-16. Select `dock`, `top`, `overlay`, or `hidden` from current terminal dimensions on every render; resizing requires no remount.
-17. Reserve top space by replacing visible viewport rows, never by prepending lines or moving the editor/footer.
-18. Never show the top overlay unless the same frame successfully reserved its rows; preserve short root frames unchanged rather than guessing which rows belong to the editor or footer.
-19. Keep right and top overlays non-capturing, mutually exclusive, and owned through their exact handles.
+16. Select `dock`, configured `top`/`bottom`, `overlay`, or `hidden` from current terminal dimensions on every render; resizing requires no remount.
+17. Top reservation may replace only the first visible viewport rows; bottom reservation may only append bounded blank rows after Pi's root.
+18. Never show a narrow overlay unless the same frame successfully reserved its rows; preserve short root frames unchanged rather than guessing which rows belong to the editor or footer.
+19. Keep right, top, and bottom overlays non-capturing, mutually exclusive, and owned through their exact handles.
 
 ## Integration contracts
 

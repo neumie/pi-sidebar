@@ -7,10 +7,11 @@ import type {
 	SidebarPanelRenderContext,
 } from "../src/api.ts";
 import {
+	NarrowSidebarComponent,
 	sanitizeSidebarLine,
 	SidebarComponent,
+	type NarrowSidebarPosition,
 	type SidebarPresentation,
-	TopSidebarComponent,
 } from "../src/render.ts";
 
 const theme = {
@@ -39,11 +40,16 @@ function assertMinimalRail(lines: string[], width: number): void {
 	assert.doesNotMatch(lines.join("\n"), /[╭╮╰╯─]/);
 }
 
-function assertTopShelf(lines: string[], width: number): void {
+function assertNarrowShelf(
+	lines: string[],
+	width: number,
+	position: NarrowSidebarPosition,
+): void {
 	assert.ok(lines.every((line) => visibleWidth(line) === width));
-	assert.ok(lines.slice(0, -1).every((line) => !line.startsWith("│")));
-	assert.doesNotMatch(lines.slice(0, -1).join("\n"), /[╭╮╰╯─]/);
-	assert.equal(lines.at(-1), "─".repeat(width));
+	const content = position === "top" ? lines.slice(0, -1) : lines.slice(1);
+	assert.ok(content.every((line) => !line.startsWith("│")));
+	assert.doesNotMatch(content.join("\n"), /[╭╮╰╯─]/);
+	assert.equal(position === "top" ? lines.at(-1) : lines[0], "─".repeat(width));
 }
 
 describe("SidebarComponent", () => {
@@ -211,21 +217,24 @@ describe("SidebarComponent", () => {
 	});
 });
 
-describe("TopSidebarComponent", () => {
-	function topComponent(
+describe("NarrowSidebarComponent", () => {
+	function narrowComponent(
 		panels: SidebarPanel[],
 		twoColumnMinWidth = 72,
-	): TopSidebarComponent {
-		return new TopSidebarComponent({
-			theme,
+		position: NarrowSidebarPosition = "top",
+		testTheme: Theme = theme,
+	): NarrowSidebarComponent {
+		return new NarrowSidebarComponent({
+			theme: testTheme,
 			getPanels: () => panels,
 			getTerminalHeight: () => 40,
 			getRows: () => 8,
 			getTwoColumnMinWidth: () => twoColumnMinWidth,
+			getPosition: () => position,
 		});
 	}
 
-	it("uses two columns when the top shelf is wide enough", () => {
+	it("uses two columns when the narrow shelf is wide enough", () => {
 		const contexts: Array<{ id: string; context: SidebarPanelRenderContext }> = [];
 		const panels: SidebarPanel[] = [
 			{
@@ -247,9 +256,9 @@ describe("TopSidebarComponent", () => {
 				},
 			},
 		];
-		const lines = topComponent(panels).render(80);
+		const lines = narrowComponent(panels).render(80);
 		assert.equal(lines.length, 8);
-		assertTopShelf(lines, 80);
+		assertNarrowShelf(lines, 80, "top");
 		assert.match(lines[0]!, /Subagents.*Background jobs/);
 		assert.match(lines[1]!, /● reviewer.*● Typecheck/);
 		assert.match(lines[2]!, /2 tools · 18s.*1 running/);
@@ -268,9 +277,9 @@ describe("TopSidebarComponent", () => {
 			{ id: "example.subagents", title: "Subagents", order: 10, render: () => ["● reviewer", "18s"] },
 			{ id: "example.jobs", title: "Background jobs", order: 20, render: () => ["● Typecheck"] },
 		];
-		const lines = topComponent(panels).render(60);
+		const lines = narrowComponent(panels).render(60);
 		assert.equal(lines.length, 8);
-		assertTopShelf(lines, 60);
+		assertNarrowShelf(lines, 60, "top");
 		assert.match(lines[0]!, /^  Subagents/);
 		assert.match(lines[1]!, /^    ● reviewer/);
 		assert.equal(lines[3], " ".repeat(60));
@@ -278,29 +287,40 @@ describe("TopSidebarComponent", () => {
 		assert.match(lines[5]!, /^    ● Typecheck/);
 	});
 
+	it("moves the divider above content in bottom position", () => {
+		const panels: SidebarPanel[] = [
+			{ id: "example.subagents", title: "Subagents", render: () => ["● reviewer"] },
+		];
+		const lines = narrowComponent(panels, 72, "bottom").render(60);
+		assert.equal(lines.length, 8);
+		assertNarrowShelf(lines, 60, "bottom");
+		assert.match(lines[1]!, /^  Subagents/);
+		assert.match(lines[2]!, /^    ● reviewer/);
+	});
+
 	it("switches from one to two columns exactly at the configured width", () => {
 		const panels: SidebarPanel[] = [
 			{ id: "one", title: "First panel", render: () => ["first", "detail"] },
 			{ id: "two", title: "Second panel", render: () => ["second", "detail"] },
 		];
-		const oneColumn = topComponent(panels).render(71);
+		const oneColumn = narrowComponent(panels).render(71);
 		assert.match(oneColumn[0]!, /First panel/);
 		assert.doesNotMatch(oneColumn[0]!, /Second panel/);
 		assert.match(oneColumn[4]!, /Second panel/);
-		const twoColumns = topComponent(panels).render(72);
+		const twoColumns = narrowComponent(panels).render(72);
 		assert.match(twoColumns[0]!, /First panel.*Second panel/);
 	});
 
-	it("centers an empty directive state above the bottom divider", () => {
-		const lines = topComponent([]).render(60);
+	it("centers an empty directive state beside the structural divider", () => {
+		const lines = narrowComponent([]).render(60);
 		assert.equal(lines.length, 8);
-		assertTopShelf(lines, 60);
+		assertNarrowShelf(lines, 60, "top");
 		assert.match(lines[2]!, /No active work/);
 		assert.match(lines[3]!, /Start a subagent or background job/);
 		assert.doesNotMatch(lines.slice(0, 2).join("\n"), /No active work/);
 	});
 
-	it("uses the dim theme color only for the structural bottom divider", () => {
+	it("uses the dim theme color for either structural divider", () => {
 		const dividerColors: string[] = [];
 		const ansiTheme = {
 			fg: (color: string, text: string) => {
@@ -309,15 +329,8 @@ describe("TopSidebarComponent", () => {
 			},
 			bold: (text: string) => text,
 		} as unknown as Theme;
-		const shelf = new TopSidebarComponent({
-			theme: ansiTheme,
-			getPanels: () => [{ id: "active", title: "Active", render: () => ["running"] }],
-			getTerminalHeight: () => 40,
-			getRows: () => 8,
-			getTwoColumnMinWidth: () => 72,
-		});
-		const lines = shelf.render(60);
-		assertTopShelf(lines, 60);
-		assert.deepEqual(dividerColors, ["dim"]);
+		assertNarrowShelf(narrowComponent([], 72, "top", ansiTheme).render(60), 60, "top");
+		assertNarrowShelf(narrowComponent([], 72, "bottom", ansiTheme).render(60), 60, "bottom");
+		assert.deepEqual(dividerColors, ["dim", "dim"]);
 	});
 });
