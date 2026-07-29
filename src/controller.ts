@@ -80,7 +80,7 @@ function initialSettings(): SidebarSettings {
 	const narrowPosition: NarrowSidebarPosition = process.env.PI_SIDEBAR_NARROW_POSITION === "top"
 		? "top"
 		: "bottom";
-	const narrowRows = aliasedIntegerEnv("PI_SIDEBAR_NARROW_ROWS", "PI_SIDEBAR_TOP_ROWS", 8, 4, 16);
+	const narrowRows = aliasedIntegerEnv("PI_SIDEBAR_NARROW_ROWS", "PI_SIDEBAR_TOP_ROWS", 7, 4, 16);
 	return {
 		enabled: process.env.PI_SIDEBAR_ENABLED !== "0",
 		mode,

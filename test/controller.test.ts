@@ -127,12 +127,13 @@ describe("SidebarController", () => {
 		h.tui.terminal.columns = 80;
 		h.tui.terminal.rows = 40;
 		const bottomReserved = h.tui.render(80);
-		assert.equal(bottomReserved.length, 48);
-		assert.ok(bottomReserved.slice(-8).every((line) => line === " ".repeat(80)));
+		assert.equal(bottomReserved.length, 47);
+		assert.ok(bottomReserved.slice(-7).every((line) => line === " ".repeat(80)));
 		assert.equal(h.tui.overlays[1]?.options?.visible?.(80, 40), false);
 		assert.equal(h.tui.overlays[2]?.options?.visible?.(80, 40), true);
 		const bottomLines = h.tui.overlays[2]?.component.render(80) ?? [];
-		assert.equal(bottomLines.length, 8);
+		assert.equal(h.tui.overlays[2]?.options?.maxHeight, 7);
+		assert.equal(bottomLines.length, 7);
 		assert.equal(bottomLines[0], "─".repeat(80));
 		assert.ok(bottomLines.slice(1).every((line) => !line.startsWith("│")));
 		assert.match(bottomLines.join("\n"), /Example panel/);
@@ -140,15 +141,15 @@ describe("SidebarController", () => {
 		const command = h.commands.get("sidebar");
 		assert.ok(command);
 		await command.handler("status", h.ctx);
-		assert.match(h.notifications.at(-1) ?? "", /backend bottom.*narrow bottom\/8 rows/);
+		assert.match(h.notifications.at(-1) ?? "", /backend bottom.*narrow bottom\/7 rows/);
 
 		await command.handler("narrow top", h.ctx);
 		const topReserved = h.tui.render(80);
 		assert.equal(topReserved.length, 40);
-		assert.ok(topReserved.slice(0, 8).every((line) => line === " ".repeat(80)));
+		assert.ok(topReserved.slice(0, 7).every((line) => line === " ".repeat(80)));
 		assert.equal(h.tui.overlays.at(-2)?.options?.visible?.(80, 40), true);
 		assert.equal(h.tui.overlays.at(-1)?.options?.visible?.(80, 40), false);
-		assert.match(h.notifications.at(-1) ?? "", /backend top.*narrow top\/8 rows/);
+		assert.match(h.notifications.at(-1) ?? "", /backend top.*narrow top\/7 rows/);
 
 		h.shutdown();
 		assert.equal(disconnected, 1);

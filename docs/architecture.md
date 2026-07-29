@@ -41,14 +41,14 @@ The renderer is a flat, unlabeled activity rail: every emitted row has one host-
 
 ### Configurable narrow shelf
 
-When the right rail does not fit and the terminal is at least 32 columns by 32 rows, the wrapper reserves eight full-width rows using the configured narrow position.
+When the right rail does not fit and the terminal is at least 32 columns by 32 rows, the wrapper reserves seven full-width rows using the configured narrow position.
 
-- `top` computes the current viewport start and replaces its first eight root rows with width-matched blanks. Root length and lower-row positions stay unchanged.
-- `bottom` appends eight blank rows after Pi's root. The viewport advances by eight, moving Pi's editor and footer upward while preserving their order and placing the shelf physically below the footer.
+- `top` computes the current viewport start and replaces its first seven root rows with width-matched blanks. Root length and lower-row positions stay unchanged.
+- `bottom` appends seven blank rows after Pi's root. The viewport advances by seven, moving Pi's editor and footer upward while preserving their order and placing the shelf physically below the footer.
 
 Transient or foreign roots shorter than the viewport are left untouched because their row roles are unknowable. Exact non-capturing overlays at `top-left` and `bottom-left` are independently mounted but mutually gated; only the configured, successfully reserved position renders in a frame.
 
-The shared narrow renderer uses seven content rows and one full-width dim-gray divider: below content in `top`, above content in `bottom`. It always stacks visible panels in one column using the shelf's full usable width. Each panel receives at most two summary body rows.
+The shared narrow renderer uses six content rows and one full-width dim-gray divider: below content in `top`, above content in `bottom`. It always stacks visible panels in one column using the shelf's full usable width. Each panel receives at most two summary body rows; when space is tight, panel detail takes precedence over an inter-panel spacer.
 
 ### Overlay fallback
 

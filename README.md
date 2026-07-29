@@ -75,13 +75,13 @@ Runtime command changes are session-scoped. Environment defaults:
 | `PI_SIDEBAR_GUTTER` | `1` | Blank columns between Pi and the sidebar. |
 | `PI_SIDEBAR_MIN_MAIN_WIDTH` | `64` | Minimum columns preserved beside the right rail. |
 | `PI_SIDEBAR_NARROW_POSITION` | `bottom` | `bottom` below the footer, or `top` at row zero. |
-| `PI_SIDEBAR_NARROW_ROWS` | `8` | Rows reserved by the narrow shelf. |
+| `PI_SIDEBAR_NARROW_ROWS` | `7` | Rows reserved by the narrow shelf. |
 | `PI_SIDEBAR_NARROW_MIN_WIDTH` | `32` | Minimum terminal width for narrow mode. |
 | `PI_SIDEBAR_NARROW_MIN_HEIGHT` | `32` | Minimum terminal height for narrow mode. |
 
 The former `PI_SIDEBAR_TOP_*` geometry variables remain accepted as fallback aliases when their corresponding remaining `PI_SIDEBAR_NARROW_*` variable is unset.
 
-In `auto` and `dock` modes, the right rail wins whenever the terminal can fit the configured main width, gutter, and sidebar width. Otherwise a terminal at least 32 columns wide and 32 rows tall gets an eight-row, single-column narrow shelf. By default its divider and content sit below Pi's footer; `narrow top` instead reserves the first eight viewport rows. Smaller terminals hide the activity surface.
+In `auto` and `dock` modes, the right rail wins whenever the terminal can fit the configured main width, gutter, and sidebar width. Otherwise a terminal at least 32 columns wide and 32 rows tall gets a seven-row, single-column narrow shelf. By default its divider and content sit below Pi's footer; `narrow top` instead reserves the first seven viewport rows. Smaller terminals hide the activity surface.
 
 The configured right-rail width includes the divider and internal padding. Right-rail providers receive `configured width - 6` body columns; narrow-shelf providers receive the shelf's full usable width. Provider height always excludes host-owned headings and section spacing.
 

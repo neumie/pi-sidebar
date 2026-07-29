@@ -231,17 +231,22 @@ describe("SidebarComponent", () => {
 });
 
 describe("NarrowSidebarComponent", () => {
+	interface NarrowFixtureOptions {
+		position?: NarrowSidebarPosition;
+		rows?: number;
+		theme?: Theme;
+	}
+
 	function narrowComponent(
 		panels: SidebarPanel[],
-		position: NarrowSidebarPosition = "top",
-		testTheme: Theme = theme,
+		options: NarrowFixtureOptions = {},
 	): NarrowSidebarComponent {
 		return new NarrowSidebarComponent({
-			theme: testTheme,
+			theme: options.theme ?? theme,
 			getPanels: () => panels,
 			getTerminalHeight: () => 40,
-			getRows: () => 8,
-			getPosition: () => position,
+			getRows: () => options.rows ?? 8,
+			getPosition: () => options.position ?? "top",
 		});
 	}
 
@@ -267,16 +272,15 @@ describe("NarrowSidebarComponent", () => {
 				},
 			},
 		];
-		const lines = narrowComponent(panels).render(80);
-		assert.equal(lines.length, 8);
+		const lines = narrowComponent(panels, { rows: 7 }).render(80);
+		assert.equal(lines.length, 7);
 		assertNarrowShelf(lines, 80, "top");
 		assert.match(lines[0]!, /^  Subagents/);
 		assert.match(lines[1]!, /^    ● reviewer/);
 		assert.match(lines[2]!, /^    2 tools · 18s/);
-		assert.equal(lines[3], " ".repeat(80));
-		assert.match(lines[4]!, /^  Background jobs/);
-		assert.match(lines[5]!, /^    ● Typecheck/);
-		assert.match(lines[6]!, /^    1 running/);
+		assert.match(lines[3]!, /^  Background jobs/);
+		assert.match(lines[4]!, /^    ● Typecheck/);
+		assert.match(lines[5]!, /^    1 running/);
 		assert.deepEqual(
 			contexts.map(({ id, context }) => ({ id, width: context.width, height: context.height })),
 			[
@@ -306,7 +310,7 @@ describe("NarrowSidebarComponent", () => {
 		const panels: SidebarPanel[] = [
 			{ id: "example.subagents", title: "Subagents", render: () => ["● reviewer"] },
 		];
-		const lines = narrowComponent(panels, "bottom").render(60);
+		const lines = narrowComponent(panels, { position: "bottom" }).render(60);
 		assert.equal(lines.length, 8);
 		assertNarrowShelf(lines, 60, "bottom");
 		assert.match(lines[1]!, /^  Subagents/);
@@ -326,17 +330,17 @@ describe("NarrowSidebarComponent", () => {
 		}
 	});
 
-	it("centers an empty directive state with the odd spare row below", () => {
-		const topLines = narrowComponent([]).render(60);
-		assert.equal(topLines.length, 8);
+	it("centers an empty directive state with equal vertical padding", () => {
+		const topLines = narrowComponent([], { rows: 7 }).render(60);
+		assert.equal(topLines.length, 7);
 		assertNarrowShelf(topLines, 60, "top");
 		assert.ok(topLines.slice(0, 2).every((line) => line.trim() === ""));
 		assert.match(topLines[2]!, /No active work/);
 		assert.match(topLines[3]!, /Start a subagent or background job/);
-		assert.ok(topLines.slice(4, 7).every((line) => line.trim() === ""));
+		assert.ok(topLines.slice(4, 6).every((line) => line.trim() === ""));
 
-		const bottomLines = narrowComponent([], "bottom").render(60);
-		assert.equal(bottomLines.length, 8);
+		const bottomLines = narrowComponent([], { position: "bottom", rows: 7 }).render(60);
+		assert.equal(bottomLines.length, 7);
 		assertNarrowShelf(bottomLines, 60, "bottom");
 		assert.ok(bottomLines.slice(1, 3).every((line) => line.trim() === ""));
 		assert.match(bottomLines[3]!, /No active work/);
@@ -353,8 +357,8 @@ describe("NarrowSidebarComponent", () => {
 			},
 			bold: (text: string) => text,
 		} as unknown as Theme;
-		assertNarrowShelf(narrowComponent([], "top", ansiTheme).render(60), 60, "top");
-		assertNarrowShelf(narrowComponent([], "bottom", ansiTheme).render(60), 60, "bottom");
+		assertNarrowShelf(narrowComponent([], { position: "top", theme: ansiTheme }).render(60), 60, "top");
+		assertNarrowShelf(narrowComponent([], { position: "bottom", theme: ansiTheme }).render(60), 60, "bottom");
 		assert.deepEqual(dividerColors, ["dim", "dim"]);
 	});
 });
