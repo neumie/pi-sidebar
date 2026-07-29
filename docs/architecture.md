@@ -77,6 +77,7 @@ Terminals that fit neither the right rail nor the minimum narrow geometry hide t
 17. Top reservation may replace only the first visible viewport rows; bottom reservation may only append bounded blank rows after Pi's root.
 18. Never show a narrow overlay unless the same frame successfully reserved its rows; preserve short root frames unchanged rather than guessing which rows belong to the editor or footer.
 19. Keep right, top, and bottom overlays non-capturing, mutually exclusive, and owned through their exact handles.
+20. Render integration health only from explicit actionable evidence; healthy, inactive, lazy, cached, malformed, and unknown states consume no panel rows.
 
 ## Integration contracts
 
@@ -96,6 +97,22 @@ The v1 status contract currently returns display text plus generic tool details.
 - stable fields: `runningCount`, `terminalRecentCount`, optional `oldestStart`, and optional primary job metadata
 
 The event intentionally omits full job output and paths. The sidebar does not bypass that privacy boundary.
+
+### LSP health through pi-footer
+
+Pi 0.82.1 exposes its read-only extension-status map only to custom footer factories. `pi-footer` therefore publishes a temporary capability rather than pushing snapshots from its render path:
+
+- request: `pi-footer:status-source:v1:request` with `{ version: 1, sessionId }`
+- ready/replay: `pi-footer:status-source:v1:ready` with `{ version: 1, sessionId, token, readStatuses }`
+- lifecycle: the getter returns a fresh bounded copy and becomes empty after footer disposal or session replacement
+
+The adapter accepts only the current session's source and pulls it during normal sidebar renders. It recognizes only the exact `pi-lens-lsp` `LSP Failed:` state already selected by Pi Lens's tested sibling/fallback policy. The sidebar never reads mutable footer state and still never owns the footer.
+
+### MCP health
+
+The MCP adapter consumes Pi's documented `tool_result` lifecycle and structured results from the generic `mcp` tool. A full `mode: "status"` result authoritatively replaces MCP issues; only `needs-auth` and `failed` are degraded. Recognized reactive failures are limited to authentication, connect/backoff, unavailable-server, and initialization failures emitted by that tool. Successful `mcp` connect/call results clear the corresponding issue. Direct and unrelated application tools are deliberately ignored even if they reuse the same detail field names; lazy, cached, ordinary disconnected, aborted, input-validation, and application-tool failures are also hidden.
+
+This is deliberately reactive: `pi-mcp-adapter` has no documented push health event. The adapter neither polls private state nor deep-imports the peer.
 
 ## Future native Pi API
 

@@ -28,6 +28,7 @@ Pi session footer
 - Does not replace the footer, so it composes with [`pi-footer`](https://github.com/neumie/pi-footer).
 - Zero-config [`pi-subagents`](https://github.com/neumie/pi-subagents) panel through its versioned in-process RPC and lifecycle events.
 - Zero-config [`pi-background-jobs`](https://github.com/neumie/pi-background-jobs) panel through its stable `background-jobs:changed` event.
+- Degraded-only Integrations panel for actionable LSP failures and observed MCP authentication/connectivity failures; healthy, inactive, cached, and lazily disconnected integrations stay hidden.
 - One layout owner for multiple independently installed panel providers.
 - Non-capturing UI: normal keyboard input stays with Pi's editor.
 - Adaptive responsive layout: right rail on wide terminals; configurable bottom dock or top shelf on narrow but very tall terminals; hidden when neither fits.
@@ -96,6 +97,15 @@ Foreground `subagent` tool calls are shown immediately from Pi's public tool lif
 ### pi-background-jobs
 
 The adapter consumes the stable `background-jobs:changed` payload. The current producer contract exposes aggregate counts and one primary job, so the panel shows the primary label, elapsed time, running count, and recent count—not a complete job list. `/jobs` remains the detailed manager.
+
+### Degraded integrations
+
+The `Integrations` section is absent unless action is required:
+
+- **LSP:** with `pi-footer` 0.3.0 or newer installed, the sidebar reads Pi Lens's existing `pi-lens-lsp` status through the footer's versioned, session-scoped status-source capability. Only `LSP Failed:` is shown; active, inactive, missing, and malformed statuses are hidden.
+- **MCP:** the adapter observes Pi's public `tool_result` lifecycle for the generic `mcp` tool. Structured status snapshots show only `needs-auth` and recent `failed` servers. Reactive `auth_required`, connection failure/backoff, unavailable-server, and initialization failures are shown until an authoritative healthy snapshot or a successful `mcp` operation confirms recovery.
+
+Normal MCP lazy states (`cached` and `not connected`), aborted calls, invalid input, and application-level MCP tool errors are not integration degradation. MCP health is reactive because `pi-mcp-adapter` currently publishes no push health event; run `mcp({})` for an authoritative refresh.
 
 ## Add a panel
 
