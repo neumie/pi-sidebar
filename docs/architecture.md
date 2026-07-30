@@ -15,7 +15,7 @@ session controller ──► bounded panel renderer
         │
         ▼
 sidebar surface
-  ├─ dock: render-width reservation + right overlay
+  ├─ dock: render-width reservation + trailing document composition
   ├─ top: documented above-editor widget shelf
   ├─ bottom: pi-footer trailing slot with below-editor fallback
   └─ overlay: supported wide fallback without reservation
@@ -35,7 +35,9 @@ A private `Symbol.for` slot elects one host instance during reload. It does not 
 
 The dock adapter captures the active `tui.render` function and replaces it with a wrapper that passes `terminalWidth - sidebarWidth - gutter` to the captured renderer. Pi therefore wraps its normal transcript, editor, widgets, and custom footer at the reduced width.
 
-The sidebar itself is one `TUI.showOverlay()` component anchored at top-right with `nonCapturing: true`. TUI overlay compositing still uses the physical terminal width, so it paints into the columns withheld from the main renderer.
+After Pi returns the document lines, the adapter places the rail in the reserved columns of only the document's trailing terminal-height rows. It uses the public `compositeTuiLine()` utility when the host exports it, except on cursor-bearing rows because the Pi 0.83 compositor removes `CURSOR_MARKER`; those rows and Pi 0.82 use an equivalent ANSI/OSC-, wide-character-, cursor-marker-, and image-aware compatibility composer. At the live bottom those are exactly the visible viewport rows. Scrolling terminal history or Pi's alternate-screen viewport upward therefore moves the composed rail down and out with the document instead of leaving it pinned to the screen. Earlier history rows remain untouched.
+
+One exact non-capturing `TUI.showOverlay()` handle remains mounted but hidden during dock presentation. It becomes visible only for the wide compatibility fallback when safe document composition is unavailable.
 
 The renderer is a flat, unlabeled activity rail: every emitted row has one host-owned dim-gray left divider and one content inset, with no reserved trailing padding. Panel bodies add one more column of indentation, so a configured width `W` yields provider body width `W - 3`. This compact hierarchy distinguishes live values from section labels while returning three columns to provider content. The divider itself is sufficient separation, so the default dock gutter is zero. Whitespace separates visible sections; no top, right, bottom, or horizontal-rule chrome is emitted. The empty state names the state and directs the user to start a subagent or background job.
 
@@ -61,7 +63,7 @@ Terminals that fit neither the right rail nor the minimum narrow geometry hide t
 4. Restore the previous renderer only when this host still owns the slot.
 5. If a later extension wraps this host, disposal makes the retained wrapper inert.
 6. Hide rather than reserve width below the responsive threshold.
-7. Dispose the exact overlay handle, not the topmost overlay.
+7. Dispose the exact fallback overlay handle, not the topmost overlay.
 8. Keep provider rendering synchronous, width-bounded, and error-isolated.
 9. Abort and dispose every panel connection on reload/session shutdown.
 10. Ignore late async connection completions from stale session generations.
@@ -73,9 +75,10 @@ Terminals that fit neither the right rail nor the minimum narrow geometry hide t
 16. Select `dock`, configured `top`/`bottom`, `overlay`, or `hidden` from current terminal dimensions on every render; resizing requires no remount.
 17. Narrow shelves use documented editor widgets or the versioned `pi-footer` post-footer capability and never mutate or inspect root lines.
 18. Render exactly one narrow-bottom copy: prefer a live post-footer handle, otherwise use the `belowEditor` fallback; top remains `aboveEditor`.
-19. Keep the right overlay non-capturing and owned through its exact handle.
+19. Keep the fallback right overlay non-capturing and owned through its exact handle.
 20. Publish bounded, private-ID-free panel summaries through Pi's footer-status seam only while the sidebar backend is hidden; clear them on every visible backend and session teardown.
 21. Render integration health only from explicit actionable evidence; healthy, inactive, lazy, cached, malformed, and unknown states consume no panel rows.
+22. Compose dock rows only into the trailing document viewport so main-screen and alternate-screen history scrolling carry the rail with the transcript.
 
 ## Integration contracts
 
