@@ -37,13 +37,13 @@ The dock adapter captures the active `tui.render` function and replaces it with 
 
 The sidebar itself is one `TUI.showOverlay()` component anchored at top-right with `nonCapturing: true`. TUI overlay compositing still uses the physical terminal width, so it paints into the columns withheld from the main renderer.
 
-The renderer is a flat, unlabeled activity rail: every emitted row has one host-owned dim-gray left divider, two columns of content inset, and one trailing padding column. Panel bodies add two more columns of indentation, so a configured width `W` yields provider body width `W - 6`. That small terminal-specific sub-inset distinguishes live values from section labels while the rail remains the single structural edge. Whitespace separates visible sections; no top, right, bottom, or horizontal-rule chrome is emitted. The empty state names the state and directs the user to start a subagent or background job.
+The renderer is a flat, unlabeled activity rail: every emitted row has one host-owned dim-gray left divider and one content inset, with no reserved trailing padding. Panel bodies add one more column of indentation, so a configured width `W` yields provider body width `W - 3`. This compact hierarchy distinguishes live values from section labels while returning three columns to provider content. The divider itself is sufficient separation, so the default dock gutter is zero. Whitespace separates visible sections; no top, right, bottom, or horizontal-rule chrome is emitted. The empty state names the state and directs the user to start a subagent or background job.
 
 ### Configurable narrow shelf
 
 When the right rail does not fit and the terminal is at least 32 columns by 32 rows, the controller mounts the seven-row shelf without claiming root lines. `top` uses Pi's documented `aboveEditor` widget placement. `bottom` requests `pi-footer`'s versioned, session-scoped post-footer capability and registers the same bounded renderer there, producing editor → footer → shelf. If that capability is missing, incompatible, replaced, or inactive, the existing documented `belowEditor` widget immediately resumes as the safe fallback.
 
-The adaptive widget returns no rows while a live post-footer handle owns bottom placement or when the rail fits, and is remounted when the configured position changes. Capability and registration handles are exact-session, generation-safe, and disposed before widget/session teardown. Neither path appends, deletes, overwrites, or inspects root/editor lines, so transient slash roots remain entirely Pi-owned.
+The adaptive widget returns no rows while a live post-footer handle owns bottom placement or when the rail fits, and is remounted when the configured position changes. Capability and registration handles are exact-session and generation-safe. Replacement is atomic: a failed capability leaves the current live handle untouched; a successful replacement is installed before the prior handle is disposed. Session/widget teardown disposes the active handle. Neither path appends, deletes, overwrites, or inspects root/editor lines, so transient slash roots remain entirely Pi-owned.
 
 The shared narrow renderer uses six content rows and one full-width dim-gray divider: below content in `top`, above content in `bottom`. It always stacks visible panels in one column using the shelf's full usable width. A panel may use up to five body rows; actual returned rows determine what remains for later panels, and panel detail takes precedence over an inter-panel spacer.
 
@@ -86,14 +86,15 @@ Terminals that fit neither the right rail nor the minimum narrow geometry hide t
 - refresh signals: `subagent:async-started`, `subagent:async-complete`, `subagent:foreground-complete`, `subagent:control-event`
 - reconciliation: bounded `status` polling after successful `ping`
 
-When `ping.capabilities.fleetStatus` is `{ version: 1 }`, the v1 status reply additionally exposes a bounded, current-session `fleet` DTO with opaque reconciliation keys, resolved agent roles, elapsed timestamps, model/effort, split token usage, caller-facing goals, and total/omitted counts. The adapter prefers that structured capability and never displays its opaque keys. Older peers fall back only to an ID-safe active-run count; human child-detail text is never rendered.
+When `ping.capabilities.fleetStatus` is `{ version: 1 }`, the v1 status reply additionally exposes a bounded, current-session `fleet` DTO with opaque reconciliation keys, resolved agent roles, elapsed timestamps, model/effort, split token usage, caller-facing goals, and total/omitted counts. The adapter prefers that structured capability and never displays its opaque keys. A bounded overflow row right-aligns `/subagents-fleet` when the usable width permits, linking to the peer's inspection-only fleet surface without exposing identifiers. Older peers fall back only to an ID-safe active-run count; human child-detail text is never rendered.
 
 ### pi-background-jobs
 
 - refresh and initial snapshot: `background-jobs:changed`
-- stable fields: `runningCount`, `terminalRecentCount`, optional `oldestStart`, and optional primary job metadata
+- stable aggregate fields: `runningCount`, `terminalRecentCount`, optional `oldestStart`, and optional primary job metadata
+- optional structured fields from `pi-background-jobs` 0.3.0+: newest-first `running` summaries (maximum 16) and exact `runningOmitted`
 
-The event intentionally omits full job output and paths. The sidebar does not bypass that privacy boundary.
+Each structured summary carries only an optional bounded display label and `startedAt`; it intentionally has no command, path, or private job id. The adapter validates aggregate/list consistency, fills the body-row budget with jobs, and reserves an overflow row only when jobs are actually hidden. That overflow row right-aligns the `/jobs` manager hint when the usable body width can hold both summary and hint; otherwise the summary wins. Older aggregate-only payloads remain valid. The event intentionally omits full job output and paths, and the sidebar does not bypass that privacy boundary.
 
 ### LSP health through pi-footer
 

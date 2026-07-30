@@ -33,9 +33,9 @@ const MAX_SOURCE_CHARS = 4_096;
 const MIN_RENDER_WIDTH = 12;
 const OVERLAY_MAX_HEIGHT = 26;
 const DIVIDER_WIDTH = 1;
-const LEFT_PADDING = 2;
-const RIGHT_PADDING = 1;
-const BODY_INDENT = 2;
+const LEFT_PADDING = 1;
+const RIGHT_PADDING = 0;
+const BODY_INDENT = 1;
 const ESC = "\x1b";
 const BEL = "\x07";
 const C1_ST = "\x9c";
@@ -141,6 +141,12 @@ function centered(value: unknown, width: number): string {
 	const text = bounded(value, width);
 	const left = Math.max(0, Math.floor((width - visibleWidth(text)) / 2));
 	return bounded(`${" ".repeat(left)}${text}`, width, true);
+}
+
+export function withRightHint(left: string, hint: string, width: number): string {
+	const fittedWidth = normalizedSize(width);
+	const gap = fittedWidth - visibleWidth(left) - visibleWidth(hint);
+	return gap >= 1 ? `${left}${" ".repeat(gap)}${hint}` : left;
 }
 
 function hasVisibleContent(value: unknown): boolean {

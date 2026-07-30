@@ -108,7 +108,7 @@ function initialSettings(): SidebarSettings {
 		enabled: process.env.PI_SIDEBAR_ENABLED !== "0",
 		mode,
 		width: integerEnv("PI_SIDEBAR_WIDTH", 42, 24, 80),
-		gutter: integerEnv("PI_SIDEBAR_GUTTER", 1, 0, 4),
+		gutter: integerEnv("PI_SIDEBAR_GUTTER", 0, 0, 4),
 		minMainWidth: integerEnv("PI_SIDEBAR_MIN_MAIN_WIDTH", 64, 40, 160),
 		narrowPosition,
 		narrowRows,
@@ -411,7 +411,7 @@ export class SidebarController {
 			runtime.postFooterToken === source.token &&
 			this.postFooterActive(runtime)
 		) return;
-		this.disposePostFooterSlot(runtime);
+		const previousHandle = runtime.postFooterHandle;
 		const handle = source.register({
 			id: "neumie.sidebar.narrow",
 			token: `${this.hostId}:${runtime.generation}`,
@@ -428,6 +428,7 @@ export class SidebarController {
 		}
 		runtime.postFooterToken = source.token;
 		runtime.postFooterHandle = handle;
+		if (previousHandle !== handle) previousHandle?.dispose();
 		this.requestRender();
 	}
 

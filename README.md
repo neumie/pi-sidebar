@@ -5,11 +5,12 @@ A docked, extensible activity sidebar for [Pi](https://pi.dev), rendered as a fl
 ```text
 Wide terminal
 Pi transcript and tools                         │
-                                                │  Subagents
-                                                │    ● reviewer · 18s
+                                                │ Subagents
+                                                │  ● reviewer · 18s
                                                 │
-Pi editor and session footer                    │  Background jobs
-                                                │    ● Typecheck · 7s
+Pi editor and session footer                    │ Background jobs
+                                                │  ● Typecheck · 7s
+                                                │  ● Test suite · 4s
 
 Narrow + tall terminal (default: bottom)
 Pi conversation
@@ -17,8 +18,10 @@ Pi conversation
 › editor
 Pi session footer
 ────────────────────────────────────────────────────
-  Subagents                         Background jobs
-    ● reviewer · 18s                  ● Typecheck · 7s
+ Subagents
+  ● reviewer · 18s
+ Background jobs
+  ● Typecheck · 7s
 ```
 
 ## Features
@@ -27,7 +30,7 @@ Pi session footer
 - Minimal chrome: one quiet structural divider—left for the right rail, above a bottom shelf, or below a top shelf—plus whitespace hierarchy and accent reserved for live activity.
 - Does not replace the footer; with [`pi-footer`](https://github.com/neumie/pi-footer) 0.4.0 or newer, the narrow-bottom shelf composes after the footer.
 - Zero-config [`pi-subagents`](https://github.com/neumie/pi-subagents) panel through its versioned in-process RPC and lifecycle events.
-- Zero-config [`pi-background-jobs`](https://github.com/neumie/pi-background-jobs) panel through its stable `background-jobs:changed` event.
+- Zero-config [`pi-background-jobs`](https://github.com/neumie/pi-background-jobs) panel that fills available rows from a bounded, private-ID-free activity snapshot.
 - Degraded-only Integrations panel for actionable LSP failures and observed MCP authentication/connectivity failures; healthy, inactive, cached, and lazily disconnected integrations stay hidden.
 - One layout owner for multiple independently installed panel providers.
 - Non-capturing UI: normal keyboard input stays with Pi's editor.
@@ -72,7 +75,7 @@ Runtime command changes are session-scoped. Environment defaults:
 | `PI_SIDEBAR_ENABLED` | `1` | Set to `0` to start hidden. |
 | `PI_SIDEBAR_MODE` | `auto` | `auto`, `dock`, or `overlay`. |
 | `PI_SIDEBAR_WIDTH` | `42` | Sidebar columns. |
-| `PI_SIDEBAR_GUTTER` | `1` | Blank columns between Pi and the sidebar. |
+| `PI_SIDEBAR_GUTTER` | `0` | Optional blank columns between Pi and the sidebar. |
 | `PI_SIDEBAR_MIN_MAIN_WIDTH` | `64` | Minimum columns preserved beside the right rail. |
 | `PI_SIDEBAR_NARROW_POSITION` | `bottom` | `bottom` after a compatible footer, or `top` above the editor. |
 | `PI_SIDEBAR_NARROW_ROWS` | `7` | Rows rendered by the narrow shelf. |
@@ -83,7 +86,7 @@ The former `PI_SIDEBAR_TOP_*` geometry variables remain accepted as fallback ali
 
 In `auto` and `dock` modes, the right rail wins whenever the terminal can fit the configured main width, gutter, and sidebar width. Otherwise a terminal at least 32 columns wide and 32 rows tall gets a seven-row, single-column narrow shelf. `narrow bottom` registers a bounded post-footer renderer when `pi-footer` 0.4.0 or newer is present, producing editor → footer → shelf; with Pi's built-in footer or an older custom footer it safely falls back to the documented `belowEditor` widget. `narrow top` always uses the documented `aboveEditor` widget. Smaller terminals hide the activity surface.
 
-The configured right-rail width includes the divider and internal padding. Right-rail providers receive `configured width - 6` body columns; narrow-shelf providers receive the shelf's full usable width. Provider height always excludes host-owned headings and section spacing.
+The configured right-rail width includes the divider and compact internal hierarchy. Right-rail providers receive `configured width - 3` body columns: one divider, one heading inset, and one additional body indent, with no reserved trailing column. Narrow-shelf providers receive the shelf's full usable width. Provider height always excludes host-owned headings and section spacing.
 
 ## Built-in integrations
 
@@ -91,11 +94,11 @@ The configured right-rail width includes the divider and internal padding. Right
 
 The adapter listens for `subagents:rpc:v1:ready`, sends versioned `ping` and `status` requests, and uses async lifecycle events for immediate refresh. It polls only after the RPC is available. Missing or incompatible subagent installations simply hide the panel.
 
-Foreground `subagent` tool calls are shown immediately from Pi's public tool lifecycle. When the peer advertises `fleetStatus` v1, each active child shows its role and elapsed time, footer-style model/effort and `↑input ↓output` usage, plus its caller-facing goal. The bounded RPC snapshot carries an omitted count so narrow surfaces can report hidden children without exposing run IDs. Older peers degrade to an ID-free active count; no private modules are imported.
+Foreground `subagent` tool calls are shown immediately from Pi's public tool lifecycle. When the peer advertises `fleetStatus` v1, each active child shows its role and elapsed time, footer-style model/effort and `↑input ↓output` usage, plus its caller-facing goal. The bounded RPC snapshot carries an omitted count so narrow surfaces can report hidden children without exposing run IDs. Overflow rows right-align `/subagents-fleet` when it fits, opening the package's live inspection-only fleet even when its native FleetView widget is disabled. Older peers degrade to an ID-free active count; no private modules are imported.
 
 ### pi-background-jobs
 
-The adapter consumes the stable `background-jobs:changed` payload. The current producer contract exposes aggregate counts and one primary job, so the panel shows the primary label, elapsed time, running count, and recent count—not a complete job list. `/jobs` remains the detailed manager.
+The adapter consumes the stable `background-jobs:changed` payload. With `pi-background-jobs` 0.3.0 or newer, it renders the newest bounded running-job summaries into every available panel row and emits `+N more` only for real overflow; that row right-aligns `/jobs` when it fits so the complete manager is one command away. Recent terminal jobs use a spare row or share the overflow summary. Older producers degrade to the aggregate primary/count view. Commands, output, paths, and private job ids are never rendered; `/jobs` remains the detailed manager.
 
 ### Degraded integrations
 

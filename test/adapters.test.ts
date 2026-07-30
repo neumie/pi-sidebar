@@ -92,6 +92,11 @@ describe("background jobs adapter", () => {
 					command: "npm run typecheck",
 					startedAt: 200,
 				},
+				running: [
+					{ label: "Build", startedAt: 300 },
+					{ label: "Typecheck", startedAt: 200 },
+				],
+				runningOmitted: 0,
 			}),
 			{
 				runningCount: 2,
@@ -100,16 +105,32 @@ describe("background jobs adapter", () => {
 				primary: {
 					id: "01",
 					label: "Typecheck",
-					command: "npm run typecheck",
 					startedAt: 200,
 				},
+				running: [
+					{ label: "Build", startedAt: 300 },
+					{ label: "Typecheck", startedAt: 200 },
+				],
+				runningOmitted: 0,
 			},
 		);
 	});
 
 	it("rejects malformed payloads without replacing state", () => {
+		const hostile = new Proxy({}, {
+			get() { throw new Error("hostile payload"); },
+		});
+		assert.doesNotThrow(() => parseBackgroundJobsPayload(hostile));
+		assert.equal(parseBackgroundJobsPayload(hostile), undefined);
 		assert.equal(
 			parseBackgroundJobsPayload({ runningCount: -1, terminalRecentCount: 0 }),
+			undefined,
+		);
+		assert.equal(
+			parseBackgroundJobsPayload({
+				runningCount: Number.MAX_VALUE,
+				terminalRecentCount: 0,
+			}),
 			undefined,
 		);
 		assert.equal(
@@ -120,6 +141,177 @@ describe("background jobs adapter", () => {
 			}),
 			undefined,
 		);
+		assert.equal(
+			parseBackgroundJobsPayload({
+				runningCount: 1,
+				terminalRecentCount: 0,
+				primary: {
+					id: "01",
+					command: "x".repeat(241),
+					startedAt: 1,
+				},
+			}),
+			undefined,
+		);
+		assert.equal(
+			parseBackgroundJobsPayload({
+				runningCount: 2,
+				terminalRecentCount: 0,
+				running: [{ command: "one", startedAt: 1 }],
+				runningOmitted: 0,
+			}),
+			undefined,
+		);
+		assert.equal(
+			parseBackgroundJobsPayload({
+				runningCount: 17,
+				terminalRecentCount: 0,
+				running: Array.from({ length: 17 }, () => ({ command: "job", startedAt: 1 })),
+				runningOmitted: 0,
+			}),
+			undefined,
+		);
+	});
+
+	it("never renders commands or filesystem paths", () => {
+		const { pi, events } = fakePi();
+		const panel = createBackgroundJobsPanel(pi);
+		const dispose = connect(panel);
+		events.emit("background-jobs:changed", {
+			runningCount: 1,
+			terminalRecentCount: 0,
+			primary: {
+				id: "01",
+				command: "cat /Users/alice/private.txt",
+				startedAt: 1,
+			},
+			running: [
+				{ command: "cat /Users/alice/private.txt", startedAt: 1 },
+			],
+			runningOmitted: 0,
+		});
+		let output = panel.render({ width: 36, height: 3, theme, now: 2_000 }).join("\n");
+		assert.match(output, /Background job/);
+		assert.doesNotMatch(output, /cat|Users|private/);
+
+		events.emit("background-jobs:changed", {
+			runningCount: 1,
+			terminalRecentCount: 0,
+			primary: {
+				id: "02",
+				command: "cat /Users/bob/legacy.txt",
+				startedAt: 1,
+			},
+		});
+		output = panel.render({ width: 36, height: 3, theme, now: 2_000 }).join("\n");
+		assert.match(output, /Background job/);
+		assert.doesNotMatch(output, /cat|Users|legacy/);
+		dispose();
+	});
+
+	it("fills available rows and summarizes only actual overflow", () => {
+		const { pi, events } = fakePi();
+		const panel = createBackgroundJobsPanel(pi);
+		events.emit("background-jobs:changed", {
+			runningCount: 3,
+			terminalRecentCount: 2,
+			oldestStart: 1_000,
+			primary: {
+				id: "03",
+				label: "Build",
+				command: "npm run build",
+				startedAt: 3_000,
+			},
+			running: [
+				{ label: "Build", startedAt: 3_000 },
+				{ label: "Tests", startedAt: 2_000 },
+				{ label: "Typecheck", startedAt: 1_000 },
+			],
+			runningOmitted: 0,
+		});
+		const dispose = connect(panel);
+		assert.deepEqual(
+			panel.render({ width: 36, height: 5, theme, now: 6_000 }),
+			[
+				"● Build · 3s",
+				"● Tests · 4s",
+				"● Typecheck · 5s",
+				"2 recent",
+			],
+		);
+		assert.deepEqual(
+			panel.render({ width: 36, height: 2, theme, now: 6_000 }),
+			["● Build · 3s", `+2 more · 2 recent${" ".repeat(13)}/jobs`],
+		);
+		assert.deepEqual(
+			panel.render({ width: 36, height: 1, theme, now: 6_000 }),
+			[`● Build · 3s · +2 · 2 recent${" ".repeat(3)}/jobs`],
+		);
+		events.emit("background-jobs:changed", {
+			runningCount: 4,
+			terminalRecentCount: 2,
+			running: [
+				{ label: "Build", startedAt: 3_000 },
+				{ label: "Tests", startedAt: 2_000 },
+				{ label: "Typecheck", startedAt: 1_000 },
+			],
+			runningOmitted: 1,
+		});
+		assert.deepEqual(
+			panel.render({ width: 36, height: 5, theme, now: 6_000 }),
+			[
+				"● Build · 3s",
+				"● Tests · 4s",
+				"● Typecheck · 5s",
+				`+1 more · 2 recent${" ".repeat(13)}/jobs`,
+			],
+		);
+
+		events.emit("background-jobs:changed", {
+			runningCount: 3,
+			terminalRecentCount: 0,
+			primary: {
+				id: "legacy",
+				label: "Legacy job",
+				command: "legacy command",
+				startedAt: 3_000,
+			},
+		});
+		assert.deepEqual(
+			panel.render({ width: 36, height: 2, theme, now: 6_000 }),
+			["● Legacy job · 3s", `3 running · +2 more${" ".repeat(12)}/jobs`],
+		);
+		assert.deepEqual(
+			panel.render({ width: 20, height: 2, theme, now: 6_000 }),
+			["● Legacy job · 3s", "3 running · +2 more"],
+		);
+		dispose();
+	});
+
+	it("continues receiving snapshots after a panel reconnect", () => {
+		const { pi, events } = fakePi();
+		const panel = createBackgroundJobsPanel(pi);
+		const firstDisconnect = connect(panel);
+		events.emit("background-jobs:changed", {
+			runningCount: 1,
+			terminalRecentCount: 0,
+			primary: { id: "01", label: "First", command: "first", startedAt: 1 },
+		});
+		assert.match(
+			panel.render({ width: 30, height: 3, theme, now: 2_000 }).join("\n"),
+			/First/,
+		);
+		firstDisconnect();
+		const secondDisconnect = connect(panel);
+		events.emit("background-jobs:changed", {
+			runningCount: 1,
+			terminalRecentCount: 0,
+			primary: { id: "02", label: "Second", command: "second", startedAt: 1 },
+		});
+		const reconnected = panel.render({ width: 30, height: 3, theme, now: 2_000 }).join("\n");
+		assert.match(reconnected, /Second/);
+		assert.doesNotMatch(reconnected, /First/);
+		secondDisconnect();
 	});
 
 	it("replays an event received before the panel connects", () => {
@@ -582,13 +774,23 @@ describe("subagent status adapter", () => {
 		assert.match(narrow.join("\n"), /↑12k ↓567.*Fix slash completion/);
 		assert.match(narrow.join("\n"), /reviewer.*1m 30s.*opus-4-8.*medium/);
 		assert.match(narrow.join("\n"), /↑4\.2k ↓890.*Review protocol safety/);
-		assert.equal(narrow.at(-1), "+1 more");
+		assert.equal(
+			narrow.at(-1),
+			`+1 more${" ".repeat(52)}/subagents-fleet`,
+		);
 
 		const rail = panel.render({ width: 36, height: 7, surface: "right", theme, now: 120_000 });
 		assert.equal(rail.length, 7);
 		assert.equal(rail.some((line) => line === "↳ Fix slash completion"), true);
 		assert.equal(rail.some((line) => line === "↳ Review protocol safety"), true);
-		assert.equal(rail.at(-1), "+1 more");
+		assert.equal(
+			rail.at(-1),
+			`+1 more${" ".repeat(13)}/subagents-fleet`,
+		);
+		assert.equal(
+			panel.render({ width: 22, height: 1, surface: "right", theme, now: 120_000 }).at(-1),
+			"+3 more",
+		);
 		dispose();
 	});
 

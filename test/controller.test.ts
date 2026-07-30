@@ -179,11 +179,11 @@ describe("SidebarController", () => {
 		assert.equal(connected, 1);
 		assert.equal(h.tui.overlays.length, 1);
 		assert.equal(h.tui.overlays[0]?.options?.nonCapturing, true);
-		assert.deepEqual(h.tui.render(120), ["main:77"]);
+		assert.deepEqual(h.tui.render(120), ["main:78"]);
 		const narrowWidget = h.widget("@neumie/pi-sidebar:narrow");
 		assert.ok(narrowWidget);
 		assert.equal(h.widgetPlacement("@neumie/pi-sidebar:narrow"), "belowEditor");
-		assert.deepEqual(narrowWidget.render(77), []);
+		assert.deepEqual(narrowWidget.render(78), []);
 		const sidebarLines = h.tui.overlays[0]?.component.render(42) ?? [];
 		assert.equal(sidebarLines.length, 14);
 		assert.ok(sidebarLines.every((line) => visibleWidth(line) === 42));
@@ -304,18 +304,28 @@ describe("SidebarController", () => {
 		assert.equal(footerShelf[0], "─".repeat(80));
 		assert.match(footerShelf.join("\n"), /Example panel.*active/s);
 
+		h.events.emit(POST_FOOTER_SLOT_READY_EVENT, {
+			version: 1,
+			sessionId: "session-1",
+			token: "failed-footer-capability",
+			register() { return undefined; },
+		});
+		assert.equal(slotActive, true);
+		assert.deepEqual(narrowWidget.render(80), []);
+
 		slotActive = false;
 		assert.equal(narrowWidget.render(80).length, 7);
+		let replacementActive = false;
 		h.events.emit(POST_FOOTER_SLOT_READY_EVENT, {
 			version: 1,
 			sessionId: "session-1",
 			token: "replacement-footer-capability",
 			register(slot: { render(width: number): readonly string[] }) {
 				registeredSlot = slot;
-				slotActive = true;
+				replacementActive = true;
 				return {
-					isActive: () => slotActive,
-					dispose: () => { slotActive = false; },
+					isActive: () => replacementActive,
+					dispose: () => { replacementActive = false; },
 				};
 			},
 		});
@@ -324,6 +334,7 @@ describe("SidebarController", () => {
 		assert.ok(command);
 		await command.handler("narrow top", h.ctx);
 		assert.equal(slotActive, false);
+		assert.equal(replacementActive, false);
 		assert.equal(
 			h.widgetPlacement("@neumie/pi-sidebar:narrow"),
 			"aboveEditor",

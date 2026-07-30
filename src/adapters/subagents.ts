@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import type { SidebarPanel } from "../api.ts";
-import { sanitizeSidebarLine } from "../render.ts";
+import { sanitizeSidebarLine, withRightHint } from "../render.ts";
 
 const RPC_READY_EVENT = "subagents:rpc:v1:ready";
 const RPC_REQUEST_EVENT = "subagents:rpc:v1:request";
@@ -492,7 +492,7 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 			context.signal.addEventListener("abort", disconnect, { once: true });
 			return disconnect;
 		},
-		render({ theme, now, height, surface }) {
+		render({ width, theme, now, height, surface }) {
 			const maxRows = Math.max(0, Math.min(MAX_STATUS_LINES, height));
 			const divider = theme.fg("dim", " · ");
 			const projection = projectEntries(fleetSnapshot, foreground);
@@ -524,7 +524,11 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 			}
 			const omitted = Math.max(0, projection.totalActive - represented);
 			if (omitted > 0 && lines.length < maxRows) {
-				lines.push(theme.fg("dim", `+${omitted} more`));
+				lines.push(withRightHint(
+					theme.fg("dim", `+${omitted} more`),
+					theme.fg("dim", "/subagents-fleet"),
+					width,
+				));
 			}
 			if (!fleetSnapshot) {
 				for (const line of statusLines) {

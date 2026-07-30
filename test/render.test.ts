@@ -80,14 +80,14 @@ describe("SidebarComponent", () => {
 		assert.equal(lines.length, 12);
 		assertMinimalRail(lines, 34);
 		assert.equal(lines[0], `│${" ".repeat(33)}`);
-		assert.match(lines[1]!, /^│  First panel/);
-		assert.match(lines[2]!, /^│    one/);
-		assert.match(lines[3]!, /^│    two/);
+		assert.match(lines[1]!, /^│ First panel/);
+		assert.match(lines[2]!, /^│  one/);
+		assert.match(lines[3]!, /^│  two/);
 		assert.equal(lines[4], `│${" ".repeat(33)}`);
-		assert.match(lines[5]!, /^│  Second panel/);
-		assert.match(lines[6]!, /^│    three/);
-		assert.doesNotMatch(lines.join("\n"), /│  Activity/);
-		assert.match(lines.at(-1)!, /^│  \/sidebar/);
+		assert.match(lines[5]!, /^│ Second panel/);
+		assert.match(lines[6]!, /^│  three/);
+		assert.doesNotMatch(lines.join("\n"), /│ Activity/);
+		assert.match(lines.at(-1)!, /^│ \/sidebar/);
 		assert.deepEqual(
 			contexts.map(({ id, context }) => ({
 				id,
@@ -96,8 +96,8 @@ describe("SidebarComponent", () => {
 				surface: context.surface,
 			})),
 			[
-				{ id: "first", width: 28, height: 9, surface: "right" },
-				{ id: "second", width: 28, height: 5, surface: "right" },
+				{ id: "first", width: 31, height: 9, surface: "right" },
+				{ id: "second", width: 31, height: 5, surface: "right" },
 			],
 		);
 		assert.equal(contexts[0]?.context.now, contexts[1]?.context.now);
@@ -113,7 +113,7 @@ describe("SidebarComponent", () => {
 		assert.match(lines[4]!, /^│ {14}No active work/);
 		assert.match(lines[5]!, /^│ {4}Start a subagent or background job/);
 		assert.ok(lines.slice(6, 11).every((line) => line === blank));
-		assert.match(lines[11]!, /^│  \/sidebar/);
+		assert.match(lines[11]!, /^│ \/sidebar/);
 	});
 
 	it("hides empty, whitespace-only, and SGR-only panels", () => {
@@ -276,17 +276,17 @@ describe("NarrowSidebarComponent", () => {
 		const lines = narrowComponent(panels, { rows: 7 }).render(80);
 		assert.equal(lines.length, 7);
 		assertNarrowShelf(lines, 80, "top");
-		assert.match(lines[0]!, /^  Subagents/);
-		assert.match(lines[1]!, /^    ● reviewer/);
-		assert.match(lines[2]!, /^    2 tools · 18s/);
-		assert.match(lines[3]!, /^  Background jobs/);
-		assert.match(lines[4]!, /^    ● Typecheck/);
-		assert.match(lines[5]!, /^    1 running/);
+		assert.match(lines[0]!, /^ Subagents/);
+		assert.match(lines[1]!, /^  ● reviewer/);
+		assert.match(lines[2]!, /^  2 tools · 18s/);
+		assert.match(lines[3]!, /^ Background jobs/);
+		assert.match(lines[4]!, /^  ● Typecheck/);
+		assert.match(lines[5]!, /^  1 running/);
 		assert.deepEqual(
 			contexts.map(({ id, context }) => ({ id, width: context.width, height: context.height, surface: context.surface })),
 			[
-				{ id: "subagents", width: 75, height: 5, surface: "narrow" },
-				{ id: "jobs", width: 75, height: 2, surface: "narrow" },
+				{ id: "subagents", width: 78, height: 5, surface: "narrow" },
+				{ id: "jobs", width: 78, height: 2, surface: "narrow" },
 			],
 		);
 		assert.equal(contexts[0]?.context.now, contexts[1]?.context.now);
@@ -300,11 +300,11 @@ describe("NarrowSidebarComponent", () => {
 		const lines = narrowComponent(panels).render(60);
 		assert.equal(lines.length, 8);
 		assertNarrowShelf(lines, 60, "top");
-		assert.match(lines[0]!, /^  Subagents/);
-		assert.match(lines[1]!, /^    ● reviewer/);
+		assert.match(lines[0]!, /^ Subagents/);
+		assert.match(lines[1]!, /^  ● reviewer/);
 		assert.equal(lines[3], " ".repeat(60));
-		assert.match(lines[4]!, /^  Background jobs/);
-		assert.match(lines[5]!, /^    ● Typecheck/);
+		assert.match(lines[4]!, /^ Background jobs/);
+		assert.match(lines[5]!, /^  ● Typecheck/);
 	});
 
 	it("moves the divider above content in bottom position", () => {
@@ -314,8 +314,8 @@ describe("NarrowSidebarComponent", () => {
 		const lines = narrowComponent(panels, { position: "bottom" }).render(60);
 		assert.equal(lines.length, 8);
 		assertNarrowShelf(lines, 60, "bottom");
-		assert.match(lines[1]!, /^  Subagents/);
-		assert.match(lines[2]!, /^    ● reviewer/);
+		assert.match(lines[1]!, /^ Subagents/);
+		assert.match(lines[2]!, /^  ● reviewer/);
 	});
 
 	it("does not change layout at the former two-column threshold", () => {
