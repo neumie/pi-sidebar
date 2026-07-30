@@ -169,10 +169,6 @@ function primaryLine(snapshot: BackgroundJobsSnapshot, theme: Theme, now: number
 	return `${theme.fg("success", "▸")} ${label}${age ? theme.fg("dim", ` · ${age}`) : ""}`;
 }
 
-function recentSuffix(count: number): string {
-	return count > 0 ? ` · ${count} recent` : "";
-}
-
 function renderLegacyJobs(
 	snapshot: BackgroundJobsSnapshot,
 	theme: Theme,
@@ -183,7 +179,7 @@ function renderLegacyJobs(
 	const more = Math.max(0, snapshot.runningCount - 1);
 	const summary = theme.fg(
 		"dim",
-		`${snapshot.runningCount} running${more ? ` · +${more} more` : ""}${recentSuffix(snapshot.terminalRecentCount)}`,
+		`${snapshot.runningCount} running${more ? ` · +${more} more` : ""}`,
 	);
 	return [
 		primaryLine(snapshot, theme, now),
@@ -208,23 +204,14 @@ function renderStructuredJobs(
 		.map((job) => jobLine(job, theme, now));
 	const hidden = Math.max(0, snapshot.runningCount - lines.length);
 	if (hidden > 0 && lines.length < available) {
-		const summary = theme.fg(
-			"dim",
-			`+${hidden} more${recentSuffix(snapshot.terminalRecentCount)}`,
-		);
+		const summary = theme.fg("dim", `+${hidden} more`);
 		lines.push(withRightHint(summary, theme.fg("dim", "/jobs"), width));
 		return lines;
 	}
 	if (hidden > 0 && available === 1 && lines.length === 1) {
-		lines[0] += theme.fg(
-			"dim",
-			` · +${hidden}${recentSuffix(snapshot.terminalRecentCount)}`,
-		);
+		lines[0] += theme.fg("dim", ` · +${hidden}`);
 		lines[0] = withRightHint(lines[0], theme.fg("dim", "/jobs"), width);
 		return lines;
-	}
-	if (snapshot.terminalRecentCount > 0 && lines.length < available) {
-		lines.push(theme.fg("dim", `${snapshot.terminalRecentCount} recent`));
 	}
 	return lines;
 }

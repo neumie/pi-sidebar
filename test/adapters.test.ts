@@ -238,16 +238,15 @@ describe("background jobs adapter", () => {
 				"▸ Build · 3s",
 				"▸ Tests · 4s",
 				"▸ Typecheck · 5s",
-				"2 recent",
 			],
 		);
 		assert.deepEqual(
 			panel.render({ width: 36, height: 2, theme, now: 6_000 }),
-			["▸ Build · 3s", `+2 more · 2 recent${" ".repeat(13)}/jobs`],
+			["▸ Build · 3s", `+2 more${" ".repeat(24)}/jobs`],
 		);
 		assert.deepEqual(
 			panel.render({ width: 36, height: 1, theme, now: 6_000 }),
-			[`▸ Build · 3s · +2 · 2 recent${" ".repeat(3)}/jobs`],
+			[`▸ Build · 3s · +2${" ".repeat(14)}/jobs`],
 		);
 		events.emit("background-jobs:changed", {
 			runningCount: 4,
@@ -265,13 +264,13 @@ describe("background jobs adapter", () => {
 				"▸ Build · 3s",
 				"▸ Tests · 4s",
 				"▸ Typecheck · 5s",
-				`+1 more · 2 recent${" ".repeat(13)}/jobs`,
+				`+1 more${" ".repeat(24)}/jobs`,
 			],
 		);
 
 		events.emit("background-jobs:changed", {
 			runningCount: 3,
-			terminalRecentCount: 0,
+			terminalRecentCount: 2,
 			primary: {
 				id: "legacy",
 				label: "Legacy job",
@@ -286,6 +285,10 @@ describe("background jobs adapter", () => {
 		assert.deepEqual(
 			panel.render({ width: 20, height: 2, theme, now: 6_000 }),
 			["▸ Legacy job · 3s", "3 running · +2 more"],
+		);
+		assert.doesNotMatch(
+			panel.render({ width: 36, height: 5, theme, now: 6_000 }).join("\n"),
+			/recent/,
 		);
 		dispose();
 	});
