@@ -4,7 +4,7 @@ import type {
 	ExtensionContext,
 	Theme,
 } from "@earendil-works/pi-coding-agent";
-import type { Component, TUI } from "@earendil-works/pi-tui";
+import { truncateToWidth, type Component, type TUI } from "@earendil-works/pi-tui";
 import { assertSidebarPanel } from "./api.ts";
 import {
 	SIDEBAR_PROTOCOL_VERSION,
@@ -24,6 +24,7 @@ import {
 import {
 	NarrowSidebarComponent,
 	SidebarComponent,
+	sanitizeSidebarLine,
 	type NarrowSidebarPosition,
 } from "./render.ts";
 import {
@@ -34,6 +35,11 @@ import {
 
 const WIDGET_KEY = "@neumie/pi-sidebar:bootstrap";
 const NARROW_WIDGET_KEY = "@neumie/pi-sidebar:narrow";
+const ACTIVITY_STATUS_KEY = "@neumie/pi-sidebar:activity";
+const MAX_ACTIVITY_STATUS_PARTS = 8;
+const MAX_ACTIVITY_STATUS_PART_WIDTH = 48;
+const MAX_ACTIVITY_STATUS_WIDTH = 160;
+const SGR = /\x1b\[[0-9:;]*m/g;
 const HOST_SLOT = Symbol.for("@neumie/pi-sidebar:host:v1");
 
 type HostSlot = { id: string; dispose(): void };
@@ -52,6 +58,8 @@ interface SessionRuntime {
 	narrowComponent?: AdaptiveNarrowSidebarComponent;
 	postFooterToken?: string;
 	postFooterHandle?: PostFooterSlotHandle;
+	activityStatus?: string;
+	activityStatusInitialized?: boolean;
 	tick?: ReturnType<typeof setInterval>;
 }
 
@@ -286,6 +294,7 @@ export class SidebarController {
 		for (const registration of this.registrations.values())
 			this.connectPanel(registration, runtime);
 		if (this.settings.enabled) this.mount(runtime);
+		this.syncActivityStatus(runtime);
 		runtime.tick = setInterval(() => this.requestRender(), 1_000);
 		runtime.tick.unref?.();
 		this.pi.events.emit(SIDEBAR_READY_EVENT, {
@@ -349,6 +358,7 @@ export class SidebarController {
 							narrowRows: this.settings.narrowRows,
 							minNarrowWidth: this.settings.minNarrowWidth,
 							minNarrowHeight: this.settings.minNarrowHeight,
+							onBackendChange: () => this.requestRender(),
 							onWarning: (message) => runtime.ctx.ui.notify(message, "warning"),
 						},
 					);
@@ -390,6 +400,7 @@ export class SidebarController {
 		runtime.components = undefined;
 		runtime.narrowComponent = undefined;
 		if (this.settings.enabled) this.mount(runtime);
+		this.syncActivityStatus(runtime);
 	}
 
 	private requestPostFooterSlot(runtime: SessionRuntime): void {
@@ -530,16 +541,59 @@ export class SidebarController {
 		this.renderQueued = true;
 		queueMicrotask(() => {
 			this.renderQueued = false;
-			for (const component of this.session?.components ?? [])
-				component.invalidate();
-			this.session?.surface?.requestRender();
+			const runtime = this.session;
+			if (runtime) this.syncActivityStatus(runtime);
+			for (const component of runtime?.components ?? []) component.invalidate();
+			runtime?.surface?.requestRender();
 		});
+	}
+
+	private syncActivityStatus(runtime: SessionRuntime): void {
+		if (!this.isCurrent(runtime)) return;
+		const hidden = !this.settings.enabled || runtime.surface?.backend() === "hidden";
+		const parts: string[] = [];
+		if (hidden) {
+			const panels = [...this.registrations.values()]
+				.map((registration) => registration.panel)
+				.sort((left, right) => (left.order ?? 0) - (right.order ?? 0));
+			for (const panel of panels) {
+				if (parts.length >= MAX_ACTIVITY_STATUS_PARTS) break;
+				try {
+					const value = panel.hiddenStatus?.();
+					if (typeof value !== "string") continue;
+					const safe = truncateToWidth(
+						sanitizeSidebarLine(value),
+						MAX_ACTIVITY_STATUS_PART_WIDTH,
+						"…",
+					);
+					if (safe.replace(SGR, "").trim()) parts.push(safe);
+				} catch {
+					// A failing optional summary cannot break the footer or sidebar.
+				}
+			}
+		}
+		const value = parts.length
+			? truncateToWidth(parts.join(" · "), MAX_ACTIVITY_STATUS_WIDTH, "…")
+			: undefined;
+		if (runtime.activityStatusInitialized && runtime.activityStatus === value) return;
+		try {
+			runtime.ctx.ui.setStatus(ACTIVITY_STATUS_KEY, value);
+			runtime.activityStatus = value;
+			runtime.activityStatusInitialized = true;
+		} catch {
+			// Replacement sessions can stale an old UI context during teardown.
+		}
 	}
 
 	private stopSession(): void {
 		const runtime = this.session;
 		if (!runtime) return;
 		this.disposePostFooterSlot(runtime);
+		try {
+			runtime.ctx.ui.setStatus(ACTIVITY_STATUS_KEY, undefined);
+		} catch {
+			// Best effort for stale replacement-session contexts.
+		}
 		this.session = undefined;
 		if (runtime.tick) clearInterval(runtime.tick);
 		for (const registration of this.registrations.values())

@@ -11,6 +11,7 @@ import {
 	type OverlayOptions,
 	type TUI,
 } from "@earendil-works/pi-tui";
+import type { SidebarPanelConnection } from "../src/api.ts";
 import { SidebarController } from "../src/controller.ts";
 import { POST_FOOTER_SLOT_READY_EVENT } from "../src/post-footer.ts";
 import { SIDEBAR_REGISTER_EVENT } from "../src/protocol.ts";
@@ -78,6 +79,8 @@ function harness() {
 	const widgets = new Map<string, Component & { dispose?(): void }>();
 	const widgetPlacements = new Map<string, string>();
 	const notifications: string[] = [];
+	const statuses = new Map<string, string>();
+	const statusWrites: Array<{ key: string; value?: string }> = [];
 	let footerWrites = 0;
 	let headerWrites = 0;
 	const ui = {
@@ -99,6 +102,11 @@ function harness() {
 		},
 		notify(message: string) {
 			notifications.push(message);
+		},
+		setStatus(key: string, value: string | undefined) {
+			statusWrites.push({ key, value });
+			if (value === undefined) statuses.delete(key);
+			else statuses.set(key, value);
 		},
 		setFooter() {
 			footerWrites += 1;
@@ -139,6 +147,8 @@ function harness() {
 		widget: (key: string) => widgets.get(key),
 		widgetPlacement: (key: string) => widgetPlacements.get(key),
 		notifications,
+		status: (key: string) => statuses.get(key),
+		statusWrites,
 		footerWrites: () => footerWrites,
 		headerWrites: () => headerWrites,
 		start: () =>
@@ -157,6 +167,9 @@ describe("SidebarController", () => {
 		const h = harness();
 		let connected = 0;
 		let disconnected = 0;
+		let hiddenStatus = "◆ 2 agents · ▸ 3 jobs";
+		let hiddenStatusReads = 0;
+		let invalidatePanel: () => void = () => undefined;
 		new SidebarController(h.pi).register();
 		h.events.emit(SIDEBAR_REGISTER_EVENT, {
 			version: 1,
@@ -164,13 +177,18 @@ describe("SidebarController", () => {
 			panel: {
 				id: "example.activity",
 				title: "Example panel",
-				connect: () => {
+				connect: (context: SidebarPanelConnection) => {
 					connected += 1;
+					invalidatePanel = context.invalidate;
 					return () => {
 						disconnected += 1;
 					};
 				},
 				render: () => ["active"],
+				hiddenStatus: () => {
+					hiddenStatusReads += 1;
+					return hiddenStatus;
+				},
 			},
 		});
 
@@ -192,6 +210,8 @@ describe("SidebarController", () => {
 		assert.match(sidebarLines.join("\n"), /Example panel/);
 		assert.match(sidebarLines.join("\n"), /active/);
 		assert.doesNotMatch(sidebarLines.join("\n"), /│ {2}Activity/);
+		assert.equal(h.status("@neumie/pi-sidebar:activity"), undefined);
+		assert.equal(hiddenStatusReads, 0);
 		assert.equal(h.footerWrites(), 0);
 		assert.equal(h.headerWrites(), 0);
 
@@ -205,6 +225,8 @@ describe("SidebarController", () => {
 		);
 		assert.equal(h.tui.overlays[0]?.options?.visible?.(80, 40), false);
 		const bottomLines = narrowWidget.render(80);
+		assert.equal(h.status("@neumie/pi-sidebar:activity"), undefined);
+		assert.equal(hiddenStatusReads, 0);
 		assert.equal(bottomLines.length, 7);
 		assert.equal(bottomLines[0], "─".repeat(80));
 		assert.match(bottomLines.join("\n"), /Example panel.*active/s);
@@ -240,12 +262,60 @@ describe("SidebarController", () => {
 		assert.ok(forcedOverlayWidget);
 		assert.deepEqual(forcedOverlayWidget.render(80), []);
 		assert.match(h.notifications.at(-1) ?? "", /mode overlay.*backend hidden/);
+		assert.equal(
+			h.status("@neumie/pi-sidebar:activity"),
+			"◆ 2 agents · ▸ 3 jobs",
+		);
+		assert.ok(hiddenStatusReads >= 1);
 
+		await command.handler("off", h.ctx);
+		assert.equal(
+			h.status("@neumie/pi-sidebar:activity"),
+			"◆ 2 agents · ▸ 3 jobs",
+		);
+		hiddenStatus = "◆ 1 agent";
+		invalidatePanel();
+		await Promise.resolve();
+		assert.equal(h.status("@neumie/pi-sidebar:activity"), "◆ 1 agent");
 		h.shutdown();
+		assert.equal(h.status("@neumie/pi-sidebar:activity"), undefined);
 		assert.equal(disconnected, 1);
 		assert.equal(h.tui.hideCount, 3);
 		h.tui.terminal.rows = 14;
 		assert.deepEqual(h.tui.render(120), ["main:120"]);
+	});
+
+	it("moves hidden activity status immediately across resize backends", async () => {
+		const h = harness();
+		new SidebarController(h.pi).register();
+		h.events.emit(SIDEBAR_REGISTER_EVENT, {
+			version: 1,
+			token: "summary-panel-token",
+			panel: {
+				id: "example.summary",
+				title: "Summary",
+				hiddenStatus: () => "◆ 1 agent · ▸ 2 jobs",
+				render: () => ["active"],
+			},
+		});
+		h.start();
+		await Promise.resolve();
+		assert.equal(h.status("@neumie/pi-sidebar:activity"), undefined);
+
+		h.tui.terminal.columns = 80;
+		h.tui.terminal.rows = 14;
+		h.tui.render(80);
+		await Promise.resolve();
+		assert.equal(
+			h.status("@neumie/pi-sidebar:activity"),
+			"◆ 1 agent · ▸ 2 jobs",
+		);
+
+		h.tui.terminal.rows = 40;
+		h.tui.render(80);
+		await Promise.resolve();
+		assert.equal(h.status("@neumie/pi-sidebar:activity"), undefined);
+		h.shutdown();
 	});
 
 	it("moves narrow bottom below a compatible footer and keeps the widget fallback", async () => {

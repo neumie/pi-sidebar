@@ -21,7 +21,7 @@ export interface SidebarPanelConnection {
 }
 
 export interface SidebarPanelRenderContext {
-	/** Usable body columns after the host divider, padding, and body indent. */
+	/** Usable body columns after host chrome; title-free narrow panels reclaim the body indent. */
 	readonly width: number;
 	/** Remaining body rows, excluding host-owned headings and section spacing. */
 	readonly height: number;
@@ -36,10 +36,14 @@ export interface SidebarPanel {
 	readonly id: string;
 	/** Short sentence-case section title. */
 	readonly title: string;
+	/** Set false when the narrow rendering is self-identifying without a heading. */
+	readonly showTitleInNarrow?: boolean;
 	readonly order?: number;
 	connect?(
 		context: SidebarPanelConnection,
 	): void | (() => void) | Promise<void | (() => void)>;
+	/** Compact, private-ID-free activity text shown in the footer only while the host is hidden. */
+	hiddenStatus?(): string | undefined;
 	/** Return no lines to hide this panel. Rendering must be synchronous. */
 	render(context: SidebarPanelRenderContext): readonly string[];
 }
@@ -54,8 +58,14 @@ export function assertSidebarPanel(panel: SidebarPanel): void {
 	if (!panel.title.trim() || panel.title.length > 80 || /[\r\n]/.test(panel.title)) {
 		throw new Error("Sidebar panel title must be one line between 1 and 80 characters.");
 	}
+	if (panel.showTitleInNarrow !== undefined && typeof panel.showTitleInNarrow !== "boolean") {
+		throw new Error("Sidebar panel showTitleInNarrow must be boolean when provided.");
+	}
 	if (panel.order !== undefined && !Number.isFinite(panel.order)) {
 		throw new Error("Sidebar panel order must be finite when provided.");
+	}
+	if (panel.hiddenStatus !== undefined && typeof panel.hiddenStatus !== "function") {
+		throw new Error("Sidebar panel hiddenStatus must be a function when provided.");
 	}
 	if (typeof panel.render !== "function") throw new Error("Sidebar panel render must be a function.");
 	if (panel.connect !== undefined && typeof panel.connect !== "function") {

@@ -301,15 +301,18 @@ export class NarrowSidebarComponent implements Component {
 
 		for (const panel of [...this.options.getPanels()].sort(panelOrder)) {
 			const availableRows = contentRows - lines.length;
-			const bodyHeight = Math.min(SHELF_PANEL_LINES, availableRows - 1);
+			const showTitle = panel.showTitleInNarrow !== false;
+			const titleRows = showTitle ? 1 : 0;
+			const bodyHeight = Math.min(SHELF_PANEL_LINES, availableRows - titleRows);
 			if (bodyHeight <= 0) break;
-			const bodyWidth = Math.max(1, contentWidth - BODY_INDENT);
+			const bodyIndent = showTitle ? BODY_INDENT : 0;
+			const bodyWidth = Math.max(1, contentWidth - bodyIndent);
 			const rendered = renderPanel(panel, contentWidth, bodyWidth, bodyHeight, "narrow", theme, now);
 			if (rendered.body.length === 0) continue;
-			const panelRows = rendered.body.length + 1;
+			const panelRows = rendered.body.length + titleRows;
 			if (lines.length > 0 && availableRows > panelRows) lines.push({ content: "" });
-			lines.push({ content: theme.fg("muted", theme.bold(rendered.title)) });
-			for (const bodyLine of rendered.body) lines.push({ content: bodyLine, indent: BODY_INDENT });
+			if (showTitle) lines.push({ content: theme.fg("muted", theme.bold(rendered.title)) });
+			for (const bodyLine of rendered.body) lines.push({ content: bodyLine, indent: bodyIndent });
 			renderedPanels += 1;
 		}
 

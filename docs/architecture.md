@@ -45,13 +45,13 @@ When the right rail does not fit and the terminal is at least 32 columns by 32 r
 
 The adaptive widget returns no rows while a live post-footer handle owns bottom placement or when the rail fits, and is remounted when the configured position changes. Capability and registration handles are exact-session and generation-safe. Replacement is atomic: a failed capability leaves the current live handle untouched; a successful replacement is installed before the prior handle is disposed. Session/widget teardown disposes the active handle. Neither path appends, deletes, overwrites, or inspects root/editor lines, so transient slash roots remain entirely Pi-owned.
 
-The shared narrow renderer uses six content rows and one full-width dim-gray divider: below content in `top`, above content in `bottom`. It always stacks visible panels in one column using the shelf's full usable width. A panel may use up to five body rows; actual returned rows determine what remains for later panels, and panel detail takes precedence over an inter-panel spacer.
+The shared narrow renderer uses six content rows and one full-width dim-gray divider: below content in `top`, above content in `bottom`. It always stacks visible panels in one column using the shelf's full usable width. Panels may opt out of their narrow title only when their body is self-identifying; the built-in activity adapters use an accent `◆` for agents and a success `▸` for background jobs. The reclaimed heading row and inset return directly to that provider. A panel may use up to five body rows; actual returned rows determine what remains for later panels, and panel detail takes precedence over an inter-panel spacer.
 
 ### Overlay fallback
 
 `auto` mode checks whether `render` is already an own property on the TUI instance. That indicates another extension may already wrap layout. Instead of stacking unsupported wrappers, the host uses a normal right overlay on wide terminals and leaves Pi at full width. On narrow terminals, the documented editor widget remains safe and available because it does not depend on render ownership. Forced `overlay` mode is wide-only and hides the narrow widget.
 
-Terminals that fit neither the right rail nor the minimum narrow geometry hide the activity surface.
+Terminals that fit neither the right rail nor the minimum narrow geometry hide the activity surface. Explicit `/sidebar off` does the same. While hidden, the controller gathers optional synchronous `hiddenStatus()` values, sanitizes and bounds each one, and writes their aggregate through Pi's documented `ctx.ui.setStatus()` seam. This keeps the footer generic: the sidebar and its adapters retain all activity ownership, and only private-ID-free counts such as `◆ 2 agents · ▸ 3 jobs` reach the right-side footer status area. Visible dock, overlay, and narrow backends clear that status.
 
 ## Invariants
 
@@ -74,7 +74,8 @@ Terminals that fit neither the right rail nor the minimum narrow geometry hide t
 17. Narrow shelves use documented editor widgets or the versioned `pi-footer` post-footer capability and never mutate or inspect root lines.
 18. Render exactly one narrow-bottom copy: prefer a live post-footer handle, otherwise use the `belowEditor` fallback; top remains `aboveEditor`.
 19. Keep the right overlay non-capturing and owned through its exact handle.
-20. Render integration health only from explicit actionable evidence; healthy, inactive, lazy, cached, malformed, and unknown states consume no panel rows.
+20. Publish bounded, private-ID-free panel summaries through Pi's footer-status seam only while the sidebar backend is hidden; clear them on every visible backend and session teardown.
+21. Render integration health only from explicit actionable evidence; healthy, inactive, lazy, cached, malformed, and unknown states consume no panel rows.
 
 ## Integration contracts
 

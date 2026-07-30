@@ -159,14 +159,14 @@ function jobLine(
 ): string {
 	const label = job.label || "Background job";
 	const age = elapsed(job.startedAt, now);
-	return `${theme.fg("accent", "●")} ${label}${age ? theme.fg("dim", ` · ${age}`) : ""}`;
+	return `${theme.fg("success", "▸")} ${label}${age ? theme.fg("dim", ` · ${age}`) : ""}`;
 }
 
 function primaryLine(snapshot: BackgroundJobsSnapshot, theme: Theme, now: number): string {
 	const primary = snapshot.primary;
 	const label = primary?.label || "Background job";
 	const age = elapsed(primary?.startedAt ?? snapshot.oldestStart, now);
-	return `${theme.fg("accent", "●")} ${label}${age ? theme.fg("dim", ` · ${age}`) : ""}`;
+	return `${theme.fg("success", "▸")} ${label}${age ? theme.fg("dim", ` · ${age}`) : ""}`;
 }
 
 function recentSuffix(count: number): string {
@@ -274,6 +274,7 @@ export function createBackgroundJobsPanel(pi: ExtensionAPI): SidebarPanel {
 	return {
 		id: "neumie.background-jobs",
 		title: "Background jobs",
+		showTitleInNarrow: false,
 		order: 200,
 		connect(context) {
 			if (disposed) return () => undefined;
@@ -288,6 +289,10 @@ export function createBackgroundJobsPanel(pi: ExtensionAPI): SidebarPanel {
 			context.signal.addEventListener("abort", disconnect, { once: true });
 			if (snapshot) invalidate();
 			return disconnect;
+		},
+		hiddenStatus() {
+			const count = snapshot?.runningCount ?? 0;
+			return count > 0 ? `▸ ${count} job${count === 1 ? "" : "s"}` : undefined;
 		},
 		render({ width, height, theme, now }) {
 			if (!snapshot || snapshot.runningCount === 0) return [];

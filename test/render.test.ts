@@ -257,36 +257,38 @@ describe("NarrowSidebarComponent", () => {
 			{
 				id: "example.subagents",
 				title: "Subagents",
+				showTitleInNarrow: false,
 				order: 10,
 				render: (context) => {
 					contexts.push({ id: "subagents", context });
-					return ["● reviewer", "2 tools · 18s"];
+					return ["◆ reviewer", "2 tools · 18s"];
 				},
 			},
 			{
 				id: "example.jobs",
 				title: "Background jobs",
+				showTitleInNarrow: false,
 				order: 20,
 				render: (context) => {
 					contexts.push({ id: "jobs", context });
-					return ["● Typecheck", "1 running"];
+					return ["▸ Typecheck", "1 running"];
 				},
 			},
 		];
 		const lines = narrowComponent(panels, { rows: 7 }).render(80);
 		assert.equal(lines.length, 7);
 		assertNarrowShelf(lines, 80, "top");
-		assert.match(lines[0]!, /^ Subagents/);
-		assert.match(lines[1]!, /^  ● reviewer/);
-		assert.match(lines[2]!, /^  2 tools · 18s/);
-		assert.match(lines[3]!, /^ Background jobs/);
-		assert.match(lines[4]!, /^  ● Typecheck/);
-		assert.match(lines[5]!, /^  1 running/);
+		assert.match(lines[0]!, /^ ◆ reviewer/);
+		assert.match(lines[1]!, /^ 2 tools · 18s/);
+		assert.equal(lines[2], " ".repeat(80));
+		assert.match(lines[3]!, /^ ▸ Typecheck/);
+		assert.match(lines[4]!, /^ 1 running/);
+		assert.doesNotMatch(lines.join("\n"), /Subagents|Background jobs/);
 		assert.deepEqual(
 			contexts.map(({ id, context }) => ({ id, width: context.width, height: context.height, surface: context.surface })),
 			[
-				{ id: "subagents", width: 78, height: 5, surface: "narrow" },
-				{ id: "jobs", width: 78, height: 2, surface: "narrow" },
+				{ id: "subagents", width: 79, height: 5, surface: "narrow" },
+				{ id: "jobs", width: 79, height: 4, surface: "narrow" },
 			],
 		);
 		assert.equal(contexts[0]?.context.now, contexts[1]?.context.now);
@@ -294,28 +296,28 @@ describe("NarrowSidebarComponent", () => {
 
 	it("stacks the same panels in one column on narrower terminals", () => {
 		const panels: SidebarPanel[] = [
-			{ id: "example.subagents", title: "Subagents", order: 10, render: () => ["● reviewer", "18s"] },
-			{ id: "example.jobs", title: "Background jobs", order: 20, render: () => ["● Typecheck"] },
+			{ id: "example.subagents", title: "Subagents", showTitleInNarrow: false, order: 10, render: () => ["◆ reviewer", "18s"] },
+			{ id: "example.jobs", title: "Background jobs", showTitleInNarrow: false, order: 20, render: () => ["▸ Typecheck"] },
 		];
 		const lines = narrowComponent(panels).render(60);
 		assert.equal(lines.length, 8);
 		assertNarrowShelf(lines, 60, "top");
-		assert.match(lines[0]!, /^ Subagents/);
-		assert.match(lines[1]!, /^  ● reviewer/);
-		assert.equal(lines[3], " ".repeat(60));
-		assert.match(lines[4]!, /^ Background jobs/);
-		assert.match(lines[5]!, /^  ● Typecheck/);
+		assert.match(lines[0]!, /^ ◆ reviewer/);
+		assert.match(lines[1]!, /^ 18s/);
+		assert.equal(lines[2], " ".repeat(60));
+		assert.match(lines[3]!, /^ ▸ Typecheck/);
+		assert.doesNotMatch(lines.join("\n"), /Subagents|Background jobs/);
 	});
 
 	it("moves the divider above content in bottom position", () => {
 		const panels: SidebarPanel[] = [
-			{ id: "example.subagents", title: "Subagents", render: () => ["● reviewer"] },
+			{ id: "example.subagents", title: "Subagents", showTitleInNarrow: false, render: () => ["◆ reviewer"] },
 		];
 		const lines = narrowComponent(panels, { position: "bottom" }).render(60);
 		assert.equal(lines.length, 8);
 		assertNarrowShelf(lines, 60, "bottom");
-		assert.match(lines[1]!, /^ Subagents/);
-		assert.match(lines[2]!, /^  ● reviewer/);
+		assert.match(lines[1]!, /^ ◆ reviewer/);
+		assert.doesNotMatch(lines.join("\n"), /Subagents/);
 	});
 
 	it("does not change layout at the former two-column threshold", () => {

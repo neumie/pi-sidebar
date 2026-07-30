@@ -182,30 +182,32 @@ function launchEntries(value: unknown): ForegroundLaunch["entries"] {
 export function parseSubagentStatusText(value: unknown): {
 	lines: string[];
 	active: boolean;
+	count: number;
 } {
-	if (typeof value !== "string") return { lines: [], active: false };
+	if (typeof value !== "string") return { lines: [], active: false, count: 0 };
 	const trimmed = value.trim();
-	if (!trimmed) return { lines: [], active: false };
+	if (!trimmed) return { lines: [], active: false, count: 0 };
 	const source = trimmed
 		.split("\n")
 		.map((line) => line.trimEnd())
 		.filter((line) => line.trim());
 	if (source.some((line) => /^No active async runs\.?$/i.test(line.trim()))) {
-		return { lines: [], active: false };
+		return { lines: [], active: false, count: 0 };
 	}
 	const headingIndex = source.findIndex((line) =>
 		/^Active async runs:\s*\d+/i.test(line.trim()),
 	);
-	if (headingIndex < 0) return { lines: [], active: false };
+	if (headingIndex < 0) return { lines: [], active: false, count: 0 };
 	const heading = source[headingIndex]!.trim().match(
 		/^Active async runs:\s*(\d+)/i,
 	);
-	const count = heading?.[1];
-	if (!count || count === "0") return { lines: [], active: false };
+	const countText = heading?.[1];
+	const count = countText ? Number(countText) : 0;
+	if (!Number.isSafeInteger(count) || count <= 0) return { lines: [], active: false, count: 0 };
 	// Legacy peers expose only human text, whose child lines can contain private IDs.
 	// Keep it as an availability fallback, never a child-detail source.
-	const lines = [`${count} async run${count === "1" ? "" : "s"}`];
-	return { lines, active: true };
+	const lines = [`${count} async run${count === 1 ? "" : "s"}`];
+	return { lines, active: true, count };
 }
 
 function elapsed(startedAt: number, now: number): string {
@@ -216,11 +218,15 @@ function elapsed(startedAt: number, now: number): string {
 }
 
 function colorStatusLine(line: string, theme: Theme): string {
-	if (line.startsWith("●")) return `${theme.fg("accent", "●")}${line.slice(1)}`;
-	if (/failed|needs attention|error/i.test(line))
-		return theme.fg("warning", line);
-	if (/complete|done/i.test(line)) return theme.fg("success", line);
-	return theme.fg("dim", line);
+	if (line.startsWith("●") || line.startsWith("◆")) {
+		return `${theme.fg("accent", "◆")}${line.slice(1)}`;
+	}
+	const color = /failed|needs attention|error/i.test(line)
+		? "warning"
+		: /complete|done/i.test(line)
+			? "success"
+			: "dim";
+	return `${theme.fg("accent", "◆")} ${theme.fg(color, line)}`;
 }
 
 function entrySignature(entry: Pick<ProjectedEntry, "agent" | "goal">): string {
@@ -263,6 +269,7 @@ function projectEntries(
 export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 	let statusLines: string[] = [];
 	let fleetSnapshot: FleetSnapshot | undefined;
+	let legacyActiveCount = 0;
 	let statusActive = false;
 	let connected = false;
 	let disposed = false;
@@ -286,6 +293,7 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 		for (const cancel of [...pendingRpc]) cancel();
 		statusLines = [];
 		fleetSnapshot = undefined;
+		legacyActiveCount = 0;
 		statusActive = false;
 		rpcAvailable = false;
 		fleetSupported = false;
@@ -375,10 +383,12 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 			fleetSnapshot = fleet;
 			if (fleet) {
 				statusLines = [];
+				legacyActiveCount = 0;
 				statusActive = fleet.totalActive > 0;
 			} else {
 				const parsed = parseSubagentStatusText(data?.text);
 				statusLines = parsed.lines;
+				legacyActiveCount = parsed.count;
 				statusActive = parsed.active;
 			}
 			invalidate();
@@ -386,6 +396,7 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 			if (connected && requestGeneration === generation) {
 				statusLines = [];
 				fleetSnapshot = undefined;
+				legacyActiveCount = 0;
 				statusActive = false;
 				invalidate();
 			}
@@ -472,6 +483,7 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 	return {
 		id: "neumie.subagents",
 		title: "Subagents",
+		showTitleInNarrow: false,
 		order: 100,
 		connect(context) {
 			if (disposed) return () => undefined;
@@ -492,6 +504,11 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 			context.signal.addEventListener("abort", disconnect, { once: true });
 			return disconnect;
 		},
+		hiddenStatus() {
+			const projected = projectEntries(fleetSnapshot, foreground).totalActive;
+			const count = fleetSnapshot ? projected : Math.max(projected, legacyActiveCount);
+			return count > 0 ? `◆ ${count} agent${count === 1 ? "" : "s"}` : undefined;
+		},
 		render({ width, theme, now, height, surface }) {
 			const maxRows = Math.max(0, Math.min(MAX_STATUS_LINES, height));
 			const divider = theme.fg("dim", " · ");
@@ -502,7 +519,7 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 				const role = entry.role && entry.role !== entry.agent
 					? `${entry.role} · ${entry.agent}`
 					: entry.agent;
-				const identity = `${theme.fg("accent", "●")} ${role}${divider}${theme.fg("dim", elapsed(entry.startedAt, now))}`;
+				const identity = `${theme.fg("accent", "◆")} ${role}${divider}${theme.fg("dim", elapsed(entry.startedAt, now))}`;
 				const model = entry.model
 					? theme.fg("accent", theme.bold(formatModel(entry.model)))
 					: theme.fg("muted", "model pending");

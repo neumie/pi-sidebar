@@ -6,11 +6,11 @@ A docked, extensible activity sidebar for [Pi](https://pi.dev), rendered as a fl
 Wide terminal
 Pi transcript and tools                         │
                                                 │ Subagents
-                                                │  ● reviewer · 18s
+                                                │  ◆ reviewer · 18s
                                                 │
 Pi editor and session footer                    │ Background jobs
-                                                │  ● Typecheck · 7s
-                                                │  ● Test suite · 4s
+                                                │  ▸ Typecheck · 7s
+                                                │  ▸ Test suite · 4s
 
 Narrow + tall terminal (default: bottom)
 Pi conversation
@@ -18,17 +18,18 @@ Pi conversation
 › editor
 Pi session footer
 ────────────────────────────────────────────────────
- Subagents
-  ● reviewer · 18s
- Background jobs
-  ● Typecheck · 7s
+ ◆ reviewer · 18s
+ ▸ Typecheck · 7s
+
+Hidden surface
+Pi session footer                 ◆ 2 agents · ▸ 3 jobs
 ```
 
 ## Features
 
 - Reserves a right-hand column so Pi's transcript, editor, widgets, and footer reflow instead of rendering underneath it.
 - Minimal chrome: one quiet structural divider—left for the right rail, above a bottom shelf, or below a top shelf—plus whitespace hierarchy and accent reserved for live activity.
-- Does not replace the footer; with [`pi-footer`](https://github.com/neumie/pi-footer) 0.4.0 or newer, the narrow-bottom shelf composes after the footer.
+- Does not replace the footer; with [`pi-footer`](https://github.com/neumie/pi-footer) 0.4.0 or newer, the narrow-bottom shelf composes after the footer. When no sidebar surface fits or `/sidebar off` is active, bounded agent/job counts move into Pi's ordinary right-side footer status area.
 - Zero-config [`pi-subagents`](https://github.com/neumie/pi-subagents) panel through its versioned in-process RPC and lifecycle events.
 - Zero-config [`pi-background-jobs`](https://github.com/neumie/pi-background-jobs) panel that fills available rows from a bounded, private-ID-free activity snapshot.
 - Degraded-only Integrations panel for actionable LSP failures and observed MCP authentication/connectivity failures; healthy, inactive, cached, and lazily disconnected integrations stay hidden.
@@ -84,7 +85,7 @@ Runtime command changes are session-scoped. Environment defaults:
 
 The former `PI_SIDEBAR_TOP_*` geometry variables remain accepted as fallback aliases when their corresponding remaining `PI_SIDEBAR_NARROW_*` variable is unset.
 
-In `auto` and `dock` modes, the right rail wins whenever the terminal can fit the configured main width, gutter, and sidebar width. Otherwise a terminal at least 32 columns wide and 32 rows tall gets a seven-row, single-column narrow shelf. `narrow bottom` registers a bounded post-footer renderer when `pi-footer` 0.4.0 or newer is present, producing editor → footer → shelf; with Pi's built-in footer or an older custom footer it safely falls back to the documented `belowEditor` widget. `narrow top` always uses the documented `aboveEditor` widget. Smaller terminals hide the activity surface.
+In `auto` and `dock` modes, the right rail wins whenever the terminal can fit the configured main width, gutter, and sidebar width. Otherwise a terminal at least 32 columns wide and 32 rows tall gets a seven-row, single-column narrow shelf. The built-in activity panels omit redundant narrow headings and identify themselves with distinct markers: `◆` agents and `▸` background jobs. `narrow bottom` registers a bounded post-footer renderer when `pi-footer` 0.4.0 or newer is present, producing editor → footer → shelf; with Pi's built-in footer or an older custom footer it safely falls back to the documented `belowEditor` widget. `narrow top` always uses the documented `aboveEditor` widget. Smaller terminals hide the activity surface and expose only private-ID-free activity counts through Pi's public footer-status seam.
 
 The configured right-rail width includes the divider and compact internal hierarchy. Right-rail providers receive `configured width - 3` body columns: one divider, one heading inset, and one additional body indent, with no reserved trailing column. Narrow-shelf providers receive the shelf's full usable width. Provider height always excludes host-owned headings and section spacing.
 
@@ -124,6 +125,7 @@ export default function deployments(pi: ExtensionAPI): void {
     id: "acme.deployments",
     title: "Deployments",
     order: 300,
+    hiddenStatus: () => active > 0 ? `◇ ${active} deployment${active === 1 ? "" : "s"}` : undefined,
 
     connect({ invalidate, signal }) {
       const unsubscribe = pi.events.on("acme:deployments-changed", (payload) => {
@@ -149,8 +151,10 @@ Panel rules:
 
 - `id` is globally unique and stable.
 - `title` is short and sentence case; the host preserves provider wording rather than rewriting it.
+- Set `showTitleInNarrow: false` only when the panel body has a stable visual identity of its own.
+- `hiddenStatus()` is optional, synchronous, bounded by the host, and must expose only aggregate, private-ID-free text. It appears in Pi's right-side footer status area only while the sidebar surface is hidden.
 - `render()` is synchronous and returns bounded terminal lines.
-- `render({ width, height, surface })` receives only the usable panel-body area, after the host divider, padding, title, and section spacing; `surface` is `right` or `narrow`.
+- `render({ width, height, surface })` receives only the usable panel-body area after host chrome; `surface` is `right` or `narrow`. A title-free narrow panel receives the reclaimed title row and inset.
 - Returning no lines hides the panel section.
 - `connect()` owns subscriptions or timers and returns their disposer.
 - The host clips every line and isolates render/connect failures by panel, including malformed or hostile output values.

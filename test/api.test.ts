@@ -65,5 +65,9 @@ describe("registerSidebarPanel", () => {
 		const { pi } = fakePi();
 		assert.throws(() => registerSidebarPanel(pi, { ...panel, id: "spaces are invalid" }), /identifier/);
 		assert.throws(() => registerSidebarPanel(pi, { ...panel, title: "bad\ntitle" }), /one line/);
+		assert.throws(
+			() => registerSidebarPanel(pi, { ...panel, hiddenStatus: "active" } as unknown as SidebarPanel),
+			/hiddenStatus/,
+		);
 	});
 });

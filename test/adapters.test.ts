@@ -212,6 +212,7 @@ describe("background jobs adapter", () => {
 	it("fills available rows and summarizes only actual overflow", () => {
 		const { pi, events } = fakePi();
 		const panel = createBackgroundJobsPanel(pi);
+		assert.equal(panel.hiddenStatus?.(), undefined);
 		events.emit("background-jobs:changed", {
 			runningCount: 3,
 			terminalRecentCount: 2,
@@ -230,22 +231,23 @@ describe("background jobs adapter", () => {
 			runningOmitted: 0,
 		});
 		const dispose = connect(panel);
+		assert.equal(panel.hiddenStatus?.(), "▸ 3 jobs");
 		assert.deepEqual(
 			panel.render({ width: 36, height: 5, theme, now: 6_000 }),
 			[
-				"● Build · 3s",
-				"● Tests · 4s",
-				"● Typecheck · 5s",
+				"▸ Build · 3s",
+				"▸ Tests · 4s",
+				"▸ Typecheck · 5s",
 				"2 recent",
 			],
 		);
 		assert.deepEqual(
 			panel.render({ width: 36, height: 2, theme, now: 6_000 }),
-			["● Build · 3s", `+2 more · 2 recent${" ".repeat(13)}/jobs`],
+			["▸ Build · 3s", `+2 more · 2 recent${" ".repeat(13)}/jobs`],
 		);
 		assert.deepEqual(
 			panel.render({ width: 36, height: 1, theme, now: 6_000 }),
-			[`● Build · 3s · +2 · 2 recent${" ".repeat(3)}/jobs`],
+			[`▸ Build · 3s · +2 · 2 recent${" ".repeat(3)}/jobs`],
 		);
 		events.emit("background-jobs:changed", {
 			runningCount: 4,
@@ -260,9 +262,9 @@ describe("background jobs adapter", () => {
 		assert.deepEqual(
 			panel.render({ width: 36, height: 5, theme, now: 6_000 }),
 			[
-				"● Build · 3s",
-				"● Tests · 4s",
-				"● Typecheck · 5s",
+				"▸ Build · 3s",
+				"▸ Tests · 4s",
+				"▸ Typecheck · 5s",
 				`+1 more · 2 recent${" ".repeat(13)}/jobs`,
 			],
 		);
@@ -279,11 +281,11 @@ describe("background jobs adapter", () => {
 		});
 		assert.deepEqual(
 			panel.render({ width: 36, height: 2, theme, now: 6_000 }),
-			["● Legacy job · 3s", `3 running · +2 more${" ".repeat(12)}/jobs`],
+			["▸ Legacy job · 3s", `3 running · +2 more${" ".repeat(12)}/jobs`],
 		);
 		assert.deepEqual(
 			panel.render({ width: 20, height: 2, theme, now: 6_000 }),
-			["● Legacy job · 3s", "3 running · +2 more"],
+			["▸ Legacy job · 3s", "3 running · +2 more"],
 		);
 		dispose();
 	});
@@ -645,6 +647,7 @@ describe("subagent status adapter", () => {
 			].join("\n"),
 		);
 		assert.equal(parsed.active, true);
+		assert.equal(parsed.count, 1);
 		assert.deepEqual(parsed.lines, ["1 async run"]);
 	});
 
@@ -770,8 +773,9 @@ describe("subagent status adapter", () => {
 
 		const narrow = panel.render({ width: 75, height: 5, surface: "narrow", theme, now: 120_000 });
 		assert.equal(narrow.length, 5);
-		assert.match(narrow.join("\n"), /worker.*2m 0s.*GPT-5\.6 Terra.*high/);
+		assert.match(narrow.join("\n"), /^◆ worker.*2m 0s.*GPT-5\.6 Terra.*high/m);
 		assert.match(narrow.join("\n"), /↑12k ↓567.*Fix slash completion/);
+		assert.equal(panel.hiddenStatus?.(), "◆ 3 agents");
 		assert.match(narrow.join("\n"), /reviewer.*1m 30s.*opus-4-8.*medium/);
 		assert.match(narrow.join("\n"), /↑4\.2k ↓890.*Review protocol safety/);
 		assert.equal(
@@ -857,7 +861,7 @@ describe("subagent status adapter", () => {
 	it("hides the panel when no async work is active", () => {
 		assert.deepEqual(
 			parseSubagentStatusText("Spawn budget: unlimited\nNo active async runs."),
-			{ lines: [], active: false },
+			{ lines: [], active: false, count: 0 },
 		);
 	});
 
