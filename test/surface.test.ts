@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { Component, OverlayOptions, TUI } from "@earendil-works/pi-tui";
+import * as PiTui from "@earendil-works/pi-tui";
+import type { Component, OverlayOptions, Terminal, TUI } from "@earendil-works/pi-tui";
 import {
 	createSidebarSurface,
 	type SidebarSurfaceComponent,
@@ -62,7 +63,52 @@ function visible(tui: FakeTui, width: number, height: number): boolean {
 	return tui.overlays[0]?.options.visible?.(width, height) ?? true;
 }
 
+function hostTerminal(): Terminal {
+	return {
+		columns: 120,
+		rows: 30,
+		kittyProtocolActive: false,
+		start() {},
+		stop() {},
+		async drainInput() {},
+		write() {},
+		moveBy() {},
+		hideCursor() {},
+		showCursor() {},
+		clearLine() {},
+		clearFromCursor() {},
+		clearScreen() {},
+		setTitle() {},
+		setProgress() {},
+	};
+}
+
 describe("createSidebarSurface", () => {
+	it("reserves and restores the real Pi TUI render seam", () => {
+		const exports = PiTui as unknown as Record<string, unknown>;
+		const HostTui = (exports.TuiMainScreen ?? exports.TUI) as new (terminal: Terminal) => TUI;
+		assert.equal(typeof HostTui, "function");
+
+		const tui = new HostTui(hostTerminal());
+		const widths: number[] = [];
+		tui.addChild({
+			render(width) {
+				widths.push(width);
+				return [`main:${width}`];
+			},
+			invalidate() {},
+		});
+
+		const surface = createSidebarSurface(tui, { right: component() }, options);
+		assert.equal(surface.backend(), "dock");
+		assert.deepEqual(tui.render(120), ["main:77"]);
+		assert.deepEqual(widths, [77]);
+
+		surface.dispose();
+		assert.equal(Object.hasOwn(tui, "render"), false);
+		assert.deepEqual(tui.render(120), ["main:120"]);
+	});
+
 	it("reserves only right-dock columns and mounts one non-capturing overlay", () => {
 		const tui = new FakeTui();
 		const right = component();

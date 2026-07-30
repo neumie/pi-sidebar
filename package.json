@@ -1,6 +1,6 @@
 {
   "name": "@neumie/pi-sidebar",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "An adaptive, extensible activity sidebar for Pi.",
   "type": "module",
   "license": "MIT",
@@ -40,8 +40,8 @@
     ]
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.82.1 <0.83.0",
-    "@earendil-works/pi-tui": ">=0.82.1 <0.83.0"
+    "@earendil-works/pi-coding-agent": ">=0.82.1 <0.84.0",
+    "@earendil-works/pi-tui": ">=0.82.1 <0.84.0"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.82.1",
