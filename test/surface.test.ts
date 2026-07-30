@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import * as PiTui from "@earendil-works/pi-tui";
-import { CURSOR_MARKER, sliceByColumn, visibleWidth } from "@earendil-works/pi-tui";
 import type { Component, OverlayOptions, Terminal, TUI } from "@earendil-works/pi-tui";
 import {
 	createSidebarSurface,
@@ -64,10 +63,10 @@ function visible(tui: FakeTui, width: number, height: number): boolean {
 	return tui.overlays[0]?.options.visible?.(width, height) ?? true;
 }
 
-function hostTerminal(rows = 30): Terminal {
+function hostTerminal(): Terminal {
 	return {
 		columns: 120,
-		rows,
+		rows: 30,
 		kittyProtocolActive: false,
 		start() {},
 		stop() {},
@@ -110,34 +109,7 @@ describe("createSidebarSurface", () => {
 		assert.deepEqual(tui.render(120), ["main:120"]);
 	});
 
-	it("scrolls the dock out in a real Pi alternate-screen host when available", () => {
-		type ScrollableTui = TUI & { scrollBy(lines: number): void };
-		type AltScreenConstructor = new (terminal: Terminal) => ScrollableTui;
-		const HostTui = (PiTui as unknown as { TuiAltScreen?: AltScreenConstructor })
-			.TuiAltScreen;
-		if (!HostTui) return;
-
-		const tui = new HostTui(hostTerminal(3));
-		tui.addChild({
-			render: (width) => Array.from({ length: 6 }, (_, index) => `history:${index}:${width}`),
-			invalidate() {},
-		});
-		const right = component();
-		right.render = () => ["rail:0", "rail:1", "rail:2"];
-		const surface = createSidebarSurface(tui, { right }, options);
-		const internals = tui as unknown as { doRender(): void; previousScreen: string[] };
-		tui.start();
-		internals.doRender();
-		assert.equal(internals.previousScreen.some((line) => line.includes("rail:")), true);
-
-		tui.scrollBy(-3);
-		internals.doRender();
-		assert.equal(internals.previousScreen.some((line) => line.includes("rail:")), false);
-		surface.dispose();
-		tui.stop();
-	});
-
-	it("reserves right-dock columns and keeps a non-capturing fallback overlay", () => {
+	it("reserves only right-dock columns and mounts one non-capturing overlay", () => {
 		const tui = new FakeTui();
 		const right = component();
 		const surface = createSidebarSurface(
@@ -150,75 +122,10 @@ describe("createSidebarSurface", () => {
 		assert.equal(tui.overlays.length, 1);
 		assert.equal(tui.overlays[0]?.options.anchor, "top-right");
 		assert.equal(tui.overlays[0]?.options.nonCapturing, true);
-		assert.equal(visible(tui, 120, 30), false);
 		assert.equal(right.presentation, "dock");
 		surface.dispose();
 		assert.deepEqual(tui.render(120), ["main:120"]);
 		assert.equal(tui.hideCount, 1);
-	});
-
-	it("composes the dock into trailing document rows so it follows history scrolling", () => {
-		const tui = new FakeTui();
-		tui.terminal.rows = 3;
-		tui.rootFactory = (width) =>
-			Array.from({ length: 6 }, (_, index) => `history:${index}:${width}`);
-		const right = component();
-		right.render = () => ["rail:0", "rail:1", "rail:2"];
-		const surface = createSidebarSurface(
-			tui as unknown as TUI,
-			{ right },
-			options,
-		);
-
-		const lines = tui.render(120);
-		assert.deepEqual(lines.slice(0, 3), ["history:0:77", "history:1:77", "history:2:77"]);
-		for (let row = 3; row < 6; row += 1) {
-			assert.equal(visibleWidth(lines[row] ?? ""), 120);
-			assert.equal(
-				sliceByColumn(lines[row] ?? "", 78, 6, true).endsWith(`rail:${row - 3}`),
-				true,
-			);
-		}
-		assert.equal(visible(tui, 120, 3), false);
-		surface.dispose();
-	});
-
-	it("preserves styled wide text, cursor markers, and image protocol rows", () => {
-		const tui = new FakeTui();
-		tui.terminal.rows = 2;
-		const imageLine = "\x1b_Ga=T,f=100;payload\x1b\\";
-		tui.rootFactory = () => [`\x1b[31m界base\x1b[0m${CURSOR_MARKER}`, imageLine];
-		const right = component();
-		right.render = () => ["\x1b]8;;https://example.com\x07界rail\x1b]8;;\x07", "rail:1"];
-		const surface = createSidebarSurface(tui as unknown as TUI, { right }, options);
-
-		const lines = tui.render(120);
-		assert.equal(visibleWidth(lines[0] ?? ""), 120);
-		assert.equal(lines[0]?.includes(CURSOR_MARKER), true);
-		assert.equal(lines[0]?.includes("https://example.com"), true);
-		assert.equal(sliceByColumn(lines[0] ?? "", 78, 6, true).includes("界rail"), true);
-		assert.equal(lines[1], imageLine);
-		surface.dispose();
-	});
-
-	it("pads short documents to the live viewport and recomposes after height changes", () => {
-		const tui = new FakeTui();
-		tui.terminal.rows = 2;
-		tui.rootFactory = () => [`main${CURSOR_MARKER}`];
-		const right = component();
-		right.render = () => ["rail:0", "rail:1", "rail:2", "rail:3"];
-		const surface = createSidebarSurface(tui as unknown as TUI, { right }, options);
-
-		const short = tui.render(120);
-		assert.equal(short.length, 2);
-		assert.equal(short[0]?.includes(CURSOR_MARKER), true);
-		assert.ok(short.every((line) => visibleWidth(line) === 120));
-		tui.terminal.rows = 4;
-		const resized = tui.render(120);
-		assert.equal(resized.length, 4);
-		assert.equal(resized[0]?.includes(CURSOR_MARKER), true);
-		assert.ok(resized.every((line) => visibleWidth(line) === 120));
-		surface.dispose();
 	});
 
 	it("never alters oversized ordinary or transient slash roots in narrow mode", () => {
@@ -246,7 +153,7 @@ describe("createSidebarSurface", () => {
 		surface.dispose();
 	});
 
-	it("keeps the fallback overlay hidden in narrow and dock presentations", () => {
+	it("keeps right overlay hidden while the editor widget owns narrow presentation", () => {
 		const tui = new FakeTui();
 		tui.terminal.columns = 80;
 		tui.terminal.rows = 40;
@@ -259,7 +166,7 @@ describe("createSidebarSurface", () => {
 		assert.equal(visible(tui, 80, 40), false);
 		tui.terminal.columns = 120;
 		assert.equal(surface.backend(), "dock");
-		assert.equal(visible(tui, 120, 40), false);
+		assert.equal(visible(tui, 120, 40), true);
 		surface.dispose();
 	});
 
@@ -332,26 +239,6 @@ describe("createSidebarSurface", () => {
 		assert.equal(surface.backend(), "overlay");
 		assert.equal(visible(tui, 120, 30), true);
 		assert.deepEqual(warnings, ["Adaptive sidebar dock reservation disabled after a render failure: dock failed"]);
-		surface.dispose();
-	});
-
-	it("falls back to the wide overlay when dock component rendering fails", () => {
-		const tui = new FakeTui();
-		const warnings: string[] = [];
-		const right = component();
-		right.render = () => {
-			if (right.presentation === "dock") throw new Error("sidebar failed");
-			return ["fallback"];
-		};
-		const surface = createSidebarSurface(
-			tui as unknown as TUI,
-			{ right },
-			{ ...options, onWarning: (message) => warnings.push(message) },
-		);
-		assert.deepEqual(tui.render(120), ["main:120"]);
-		assert.equal(surface.backend(), "overlay");
-		assert.equal(visible(tui, 120, 30), true);
-		assert.deepEqual(warnings, ["Adaptive sidebar dock reservation disabled after a render failure: sidebar failed"]);
 		surface.dispose();
 	});
 

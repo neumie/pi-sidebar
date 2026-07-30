@@ -197,12 +197,7 @@ describe("SidebarController", () => {
 		assert.equal(connected, 1);
 		assert.equal(h.tui.overlays.length, 1);
 		assert.equal(h.tui.overlays[0]?.options?.nonCapturing, true);
-		assert.equal(h.tui.overlays[0]?.options?.visible?.(120, 14), false);
-		const dockRoot = h.tui.render(120);
-		assert.equal(dockRoot.length, 14);
-		assert.ok(dockRoot.every((line) => visibleWidth(line) === 120));
-		assert.match(dockRoot.join("\n"), /Example panel/);
-		assert.match(dockRoot.join("\n"), /active/);
+		assert.deepEqual(h.tui.render(120), ["main:78"]);
 		const narrowWidget = h.widget("@neumie/pi-sidebar:narrow");
 		assert.ok(narrowWidget);
 		assert.equal(h.widgetPlacement("@neumie/pi-sidebar:narrow"), "belowEditor");

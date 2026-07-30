@@ -35,8 +35,8 @@ Pi session footer                 ◆ 2 agents · ▸ 3 jobs
 - Degraded-only Integrations panel for actionable LSP failures and observed MCP authentication/connectivity failures; healthy, inactive, cached, and lazily disconnected integrations stay hidden.
 - One layout owner for multiple independently installed panel providers.
 - Non-capturing UI: normal keyboard input stays with Pi's editor.
-- Adaptive responsive layout: scrollback-following right rail on wide terminals; configurable bottom dock or top shelf on narrow but very tall terminals; hidden when neither fits.
-- Safe viewport-fixed overlay fallback when another extension already wraps Pi's root renderer.
+- Adaptive responsive layout: right rail on wide terminals; configurable bottom dock or top shelf on narrow but very tall terminals; hidden when neither fits.
+- Safe overlay fallback when another extension already wraps Pi's root renderer.
 - Reload-safe, token-safe panel registration.
 
 ## Install
@@ -167,11 +167,10 @@ Pi 0.82.1 does not expose a native column-reserving side-panel API. In `auto` mo
 
 1. capture Pi's public `TUI` through a zero-height widget factory;
 2. wrap `tui.render(width)` so the normal UI receives the remaining main width;
-3. compose the rail into the document's trailing viewport rows—using Pi's public `compositeTuiLine()` when safe and an ANSI/image/cursor-aware compatibility path on Pi 0.82 and cursor-bearing rows—so terminal or alternate-screen history scrolling moves it naturally;
-4. keep one exact, non-capturing right overlay hidden for compatibility fallback;
-5. restore the renderer with compare-and-swap teardown.
+3. mount one exact, non-capturing right overlay in the reserved columns;
+4. restore the renderer with compare-and-swap teardown.
 
-The renderer wrapper is version-sensitive. If another extension already owns an instance-level renderer wrapper, `auto` mode falls back to a normal viewport-fixed wide overlay rather than stacking layout patches; narrow mode remains available because it does not need render ownership. Forced `overlay` mode is wide-only and hides the narrow shelf. Narrow mode never appends, deletes, overwrites, or inspects Pi root lines: it uses documented editor widgets plus the optional versioned `pi-footer` post-footer capability. This keeps slash completion and other transient editor UI entirely Pi-owned. If Pi later adds a native side-panel or below-footer API, only the private surface adapter needs to change; panel providers and integrations stay unchanged.
+The renderer wrapper is version-sensitive. If another extension already owns an instance-level renderer wrapper, `auto` mode falls back to a normal wide overlay rather than stacking layout patches; narrow mode remains available because it does not need render ownership. Forced `overlay` mode is wide-only and hides the narrow shelf. Narrow mode never appends, deletes, overwrites, or inspects Pi root lines: it uses documented editor widgets plus the optional versioned `pi-footer` post-footer capability. This keeps slash completion and other transient editor UI entirely Pi-owned. If Pi later adds a native side-panel or below-footer API, only the private surface adapter needs to change; panel providers and integrations stay unchanged.
 
 See [`docs/architecture.md`](docs/architecture.md) for invariants and trade-offs.
 
