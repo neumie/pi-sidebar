@@ -37,6 +37,7 @@ Pi session footer                 ◆ 2 agents · ▸ 3 jobs
 - Zero-config [`pi-subagents-goal`](https://github.com/neumie/pi-subagents-goal) panel through its versioned, session-scoped, display-safe status API.
 - Zero-config [`pi-subagents`](https://github.com/neumie/pi-subagents) panel through its versioned in-process RPC and lifecycle events.
 - Zero-config [`pi-background-jobs`](https://github.com/neumie/pi-background-jobs) panel that fills available rows from a bounded, private-ID-free activity snapshot.
+- Actionable-only config update panel through `pi-config`'s bounded, versioned `/config-status` snapshot protocol.
 - Degraded-only Integrations panel for actionable LSP failures and observed MCP authentication/connectivity failures; healthy, inactive, cached, and lazily disconnected integrations stay hidden.
 - One layout owner for multiple independently installed panel providers.
 - Non-capturing UI: normal keyboard input stays with Pi's editor.
@@ -109,6 +110,10 @@ Foreground `subagent` tool calls are shown immediately from Pi's public tool lif
 ### pi-background-jobs
 
 The adapter consumes the stable `background-jobs:changed` payload. With `pi-background-jobs` 0.3.0 or newer, it renders the newest bounded running-job summaries into every available panel row and emits `+N more` only for real overflow; that row right-aligns `/jobs` when it fits so the complete manager is one command away. Recent terminal jobs use a spare row or share the overflow summary. Older producers degrade to the aggregate primary/count view. Commands, output, paths, and private job ids are never rendered; `/jobs` remains the detailed manager.
+
+### Config updates
+
+The adapter requests `@neumie/config-status:v1:snapshot` once when the sidebar connects and refreshes whenever `/config-status` runs. It shows only updates that are eligible now—such as an npm version that satisfies `min-release-age` or a local fork behind its parent—and hides current, dirty/attention-only, error, and age-held entries. Rows contain only bounded display names, versions, and update summaries; overflow right-aligns `/config-status` when it fits. Missing or incompatible providers simply hide the panel.
 
 ### Degraded integrations
 

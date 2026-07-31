@@ -76,6 +76,7 @@ Terminals that fit neither the right rail nor the minimum narrow geometry hide t
 19. Keep the right overlay non-capturing and owned through its exact handle.
 20. Publish bounded, private-ID-free panel summaries through Pi's footer-status seam only while the sidebar backend is hidden; clear them on every visible backend and session teardown.
 21. Render integration health only from explicit actionable evidence; healthy, inactive, lazy, cached, malformed, and unknown states consume no panel rows.
+22. Render config freshness only from bounded v1 `update` snapshots; current, attention-only, error, and age-held states consume no panel rows.
 
 ## Integration contracts
 
@@ -104,6 +105,15 @@ When `ping.capabilities.fleetStatus` is `{ version: 1 }`, the v1 status reply ad
 - optional structured fields from `pi-background-jobs` 0.3.0+: newest-first `running` summaries (maximum 16) and exact `runningOmitted`
 
 Each structured summary carries only an optional bounded display label and `startedAt`; it intentionally has no command, path, or private job id. The adapter validates aggregate/list consistency, fills the body-row budget with jobs, and reserves an overflow row only when jobs are actually hidden. That overflow row right-aligns the `/jobs` manager hint when the usable body width can hold both summary and hint; otherwise the summary wins. Older aggregate-only payloads remain valid. The event intentionally omits full job output and paths, and the sidebar does not bypass that privacy boundary.
+
+### Config status
+
+- discovery: `@neumie/config-status:v1:ready`
+- request: `@neumie/config-status:v1:request`
+- snapshot: `@neumie/config-status:v1:snapshot`
+- display fields: checked timestamp, at most 64 actionable update names/kinds/versions/summaries, and an omitted count capped at 10,000
+
+The adapter requests once per connection; successful `/config-status` runs publish through the same snapshot event. It validates the complete bounded payload, rejects controls and malformed versions/counts, and renders only immediately eligible `update` entries. It does not poll, inspect `pi-config` internals, or display current, dirty/attention-only, failed-verification, or age-held entries. A missing provider leaves the panel absent.
 
 ### LSP health through pi-footer
 
