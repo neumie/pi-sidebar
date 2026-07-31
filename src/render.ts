@@ -231,9 +231,11 @@ export class SidebarComponent implements Component {
 		const now = Date.now();
 		for (const panel of [...this.options.getPanels()].sort(panelOrder)) {
 			const separatorRows = renderedPanels > 0 ? 1 : 0;
+			const showTitle = panel.showTitleInRight !== false;
+			const titleRows = showTitle ? 1 : 0;
 			const remainingBodyRows = Math.min(
 				MAX_PANEL_LINES,
-				panelLimit - lines.length - separatorRows - 1,
+				panelLimit - lines.length - separatorRows - titleRows,
 			);
 			if (remainingBodyRows <= 0) break;
 
@@ -249,8 +251,9 @@ export class SidebarComponent implements Component {
 			if (rendered.body.length === 0) continue;
 
 			if (renderedPanels > 0) lines.push(row());
-			lines.push(row(theme.fg("muted", theme.bold(rendered.title))));
-			for (const bodyLine of rendered.body) lines.push(row(bodyLine, BODY_INDENT));
+			if (showTitle) lines.push(row(theme.fg("muted", theme.bold(rendered.title))));
+			const bodyIndent = showTitle ? BODY_INDENT : 0;
+			for (const bodyLine of rendered.body) lines.push(row(bodyLine, bodyIndent));
 			renderedPanels += 1;
 		}
 

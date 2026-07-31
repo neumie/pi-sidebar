@@ -69,5 +69,9 @@ describe("registerSidebarPanel", () => {
 			() => registerSidebarPanel(pi, { ...panel, hiddenStatus: "active" } as unknown as SidebarPanel),
 			/hiddenStatus/,
 		);
+		assert.throws(
+			() => registerSidebarPanel(pi, { ...panel, showTitleInRight: "no" } as unknown as SidebarPanel),
+			/showTitleInRight/,
+		);
 	});
 });

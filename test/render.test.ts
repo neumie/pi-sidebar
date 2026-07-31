@@ -103,6 +103,18 @@ describe("SidebarComponent", () => {
 		assert.equal(contexts[0]?.context.now, contexts[1]?.context.now);
 	});
 
+	it("renders self-identifying right-rail panels without a title row", () => {
+		const lines = component([{
+			id: "example.config",
+			title: "Config updates",
+			showTitleInRight: false,
+			render: () => ["4 · /config-status"],
+		}], 5).render(34);
+		assertMinimalRail(lines, 34);
+		assert.match(lines.join("\n"), /^│ 4 · \/config-status/m);
+		assert.doesNotMatch(lines.join("\n"), /Config updates/);
+	});
+
 	it("centers the empty state within the dock", () => {
 		const lines = component([], 12).render(42);
 		const blank = `│${" ".repeat(41)}`;

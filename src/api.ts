@@ -36,6 +36,8 @@ export interface SidebarPanel {
 	readonly id: string;
 	/** Short sentence-case section title. */
 	readonly title: string;
+	/** Set false when the right-rail rendering is self-identifying without a heading. */
+	readonly showTitleInRight?: boolean;
 	/** Set false when the narrow rendering is self-identifying without a heading. */
 	readonly showTitleInNarrow?: boolean;
 	readonly order?: number;
@@ -57,6 +59,9 @@ export function assertSidebarPanel(panel: SidebarPanel): void {
 	}
 	if (!panel.title.trim() || panel.title.length > 80 || /[\r\n]/.test(panel.title)) {
 		throw new Error("Sidebar panel title must be one line between 1 and 80 characters.");
+	}
+	if (panel.showTitleInRight !== undefined && typeof panel.showTitleInRight !== "boolean") {
+		throw new Error("Sidebar panel showTitleInRight must be boolean when provided.");
 	}
 	if (panel.showTitleInNarrow !== undefined && typeof panel.showTitleInNarrow !== "boolean") {
 		throw new Error("Sidebar panel showTitleInNarrow must be boolean when provided.");

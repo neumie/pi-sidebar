@@ -113,7 +113,7 @@ The adapter consumes the stable `background-jobs:changed` payload. With `pi-back
 
 ### Config updates
 
-The adapter requests `@neumie/config-status:v1:snapshot` once when the sidebar connects and refreshes whenever `/config-status` runs. It counts only updates that are eligible now—such as an npm version that satisfies `min-release-age` or a local fork behind its parent—and hides current, dirty/attention-only, error, and age-held entries. The sidebar renders one colored number plus `/config-status`; individual package names, versions, and summaries remain exclusively in the command. Ordinary availability uses the warning color, while snapshot overflow uses the error color. Missing or incompatible providers simply hide the panel.
+The adapter requests `@neumie/config-status:v1:snapshot` once when the sidebar connects and refreshes whenever `/config-status` runs. It counts only updates that are eligible now—such as an npm version that satisfies `min-release-age` or a local fork behind its parent—and hides current, dirty/attention-only, error, and age-held entries. The sidebar renders one titleless line—`4 · /config-status`; individual package names, versions, and summaries remain exclusively in the command. Ordinary availability uses the warning color, while snapshot overflow uses the error color. Missing or incompatible providers simply hide the panel.
 
 ### Degraded integrations
 
@@ -165,7 +165,7 @@ Panel rules:
 
 - `id` is globally unique and stable.
 - `title` is short and sentence case; the host preserves provider wording rather than rewriting it.
-- Set `showTitleInNarrow: false` only when the panel body has a stable visual identity of its own.
+- Set `showTitleInRight: false` or `showTitleInNarrow: false` only when the corresponding panel body has a stable visual identity of its own.
 - `hiddenStatus()` is optional, synchronous, bounded by the host, and must expose only aggregate, private-ID-free text. It appears in Pi's right-side footer status area only while the sidebar surface is hidden.
 - `render()` is synchronous and returns bounded terminal lines.
 - `render({ width, height, surface })` receives only the usable panel-body area after host chrome; `surface` is `right` or `narrow`. A title-free narrow panel receives the reclaimed title row and inset.

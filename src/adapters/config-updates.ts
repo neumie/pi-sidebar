@@ -3,7 +3,6 @@ import type {
 	SidebarPanel,
 	SidebarPanelRenderContext,
 } from "../api.ts";
-import { withRightHint } from "../render.ts";
 
 export const CONFIG_STATUS_PROTOCOL_VERSION = 1 as const;
 export const CONFIG_STATUS_READY_EVENT = "@neumie/config-status:v1:ready";
@@ -103,11 +102,7 @@ export function renderConfigUpdates(
 	const count = omitted === 10_000 ? `${totalUpdates}+` : String(totalUpdates);
 	const urgency = omitted > 0 ? "error" : "warning";
 	return [
-		withRightHint(
-			context.theme.fg(urgency, count),
-			context.theme.fg("dim", "/config-status"),
-			context.width,
-		),
+		`${context.theme.fg(urgency, count)}${context.theme.fg("dim", " · /config-status")}`,
 	];
 }
 
@@ -150,6 +145,8 @@ export function createConfigUpdatesPanel(pi: ExtensionAPI): SidebarPanel {
 	return {
 		id: "neumie.config-updates",
 		title: "Config updates",
+		showTitleInRight: false,
+		showTitleInNarrow: false,
 		order: 250,
 		connect(context) {
 			if (disposed) return () => undefined;
