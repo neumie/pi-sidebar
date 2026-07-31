@@ -129,15 +129,28 @@ describe("config update snapshots", () => {
 		);
 	});
 
-	it("renders compact actionable rows with bounded overflow", () => {
-		assert.deepEqual(renderConfigUpdates(snapshot, renderContext()), [
-			"↑ pi · +1/-71 vs upstream/main",
-			"↑ @narumitw/pi-btw · 0.32.0 → 0.34.0",
-			"+2 more                                       /config-status",
-		]);
-		assert.deepEqual(renderConfigUpdates(snapshot, renderContext(40, 1)), [
-			"↑ pi · +1/-71 vs upstream/main        +3",
-		]);
+	it("renders only a colored count and the detail command", () => {
+		const colors: string[] = [];
+		const context = {
+			...renderContext(),
+			theme: {
+				...theme,
+				fg(color: string, text: string) {
+					colors.push(color);
+					return text;
+				},
+			} as Theme,
+		};
+		const lines = renderConfigUpdates(snapshot, context);
+		assert.equal(lines.length, 1);
+		assert.match(lines[0] ?? "", /^4\s+\/config-status$/);
+		assert.doesNotMatch(lines[0] ?? "", /pi|narumitw|subagents|web-access/);
+		assert.equal(colors[0], "warning");
+
+		colors.length = 0;
+		const overflow = renderConfigUpdates({ ...snapshot, updatesOmitted: 2 }, context);
+		assert.match(overflow[0] ?? "", /^6\s+\/config-status$/);
+		assert.equal(colors[0], "error");
 		assert.deepEqual(
 			renderConfigUpdates({ ...snapshot, updates: [], updatesOmitted: 0 }, renderContext()),
 			[],
@@ -173,7 +186,7 @@ describe("config updates panel", () => {
 		assert.equal(requests().length, 2);
 		events.emit(CONFIG_STATUS_SNAPSHOT_EVENT, snapshot);
 		assert.equal(invalidations, 1);
-		assert.match(panel.render(renderContext())[0] ?? "", /↑ pi/);
+		assert.match(panel.render(renderContext())[0] ?? "", /^4\s+\/config-status$/);
 
 		events.emit(CONFIG_STATUS_SNAPSHOT_EVENT, {
 			...snapshot,

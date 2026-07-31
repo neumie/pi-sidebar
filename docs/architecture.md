@@ -76,7 +76,7 @@ Terminals that fit neither the right rail nor the minimum narrow geometry hide t
 19. Keep the right overlay non-capturing and owned through its exact handle.
 20. Publish bounded, private-ID-free panel summaries through Pi's footer-status seam only while the sidebar backend is hidden; clear them on every visible backend and session teardown.
 21. Render integration health only from explicit actionable evidence; healthy, inactive, lazy, cached, malformed, and unknown states consume no panel rows.
-22. Render config freshness only from bounded v1 `update` snapshots; current, attention-only, error, and age-held states consume no panel rows.
+22. Render config freshness only as one colored actionable count plus `/config-status`; current, attention-only, error, and age-held states consume no panel rows, and package details remain in the command.
 
 ## Integration contracts
 
@@ -113,7 +113,7 @@ Each structured summary carries only an optional bounded display label and `star
 - snapshot: `@neumie/config-status:v1:snapshot`
 - display fields: checked timestamp, at most 64 actionable update names/kinds/versions/summaries, and an omitted count capped at 10,000
 
-The adapter requests once per connection; successful `/config-status` runs publish through the same snapshot event. It validates the complete bounded payload, rejects controls and malformed versions/counts, and renders only immediately eligible `update` entries. It does not poll, inspect `pi-config` internals, or display current, dirty/attention-only, failed-verification, or age-held entries. A missing provider leaves the panel absent.
+The adapter requests once per connection; successful `/config-status` runs publish through the same snapshot event. It validates the complete bounded payload, rejects controls and malformed versions/counts, and renders immediately eligible `update` entries only as a one-row count with a `/config-status` hint. Names, versions, and summaries never enter the sidebar; snapshot overflow raises the count color from warning to error. It does not poll, inspect `pi-config` internals, or display current, dirty/attention-only, failed-verification, or age-held entries. A missing provider leaves the panel absent.
 
 ### LSP health through pi-footer
 

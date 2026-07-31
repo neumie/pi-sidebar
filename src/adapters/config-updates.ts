@@ -1,4 +1,4 @@
-import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type {
 	SidebarPanel,
 	SidebarPanelRenderContext,
@@ -92,68 +92,23 @@ export function parseConfigStatusSnapshot(
 	};
 }
 
-function compactUpdateDetail(update: ConfigStatusUpdateV1): string | undefined {
-	const npmUpdate = update.detail.match(
-		/(?:^| · )installed ([^ ·]+) → ([^ ·]+)/,
-	);
-	if (npmUpdate?.[1] && npmUpdate[2]) {
-		return `${npmUpdate[1]} → ${npmUpdate[2]}`;
-	}
-	const segments = update.detail.split(" · ");
-	const fork = segments.find((segment) => segment.startsWith("fork "));
-	if (fork) return fork.slice("fork ".length);
-	const actionable = segments.find(
-		(segment) => segment.includes("→") || /\b(?:behind|update)\b/i.test(segment),
-	);
-	if (actionable) return actionable.replace(/^installed /, "");
-	return update.version;
-}
-
-function updateLine(update: ConfigStatusUpdateV1, theme: Theme): string {
-	const detail = compactUpdateDetail(update);
-	return [
-		theme.fg("warning", "↑"),
-		" ",
-		theme.fg("text", update.name),
-		detail ? theme.fg("dim", ` · ${detail}`) : "",
-	].join("");
-}
-
 export function renderConfigUpdates(
 	snapshot: ConfigStatusSnapshotV1 | undefined,
 	context: SidebarPanelRenderContext,
 ): string[] {
-	const height = Math.max(0, Math.floor(context.height));
 	const updates = snapshot?.updates ?? [];
-	if (updates.length === 0 || context.width <= 0 || height === 0) return [];
-	const totalUpdates = updates.length + (snapshot?.updatesOmitted ?? 0);
-
-	if (height === 1) {
-		const omitted = Math.max(0, totalUpdates - 1);
-		const hint = omitted > 0 ? `+${omitted}` : "/config-status";
-		return [
-			withRightHint(
-				updateLine(updates[0] as ConfigStatusUpdateV1, context.theme),
-				context.theme.fg("dim", hint),
-				context.width,
-			),
-		];
-	}
-
-	const visibleUpdates = updates.slice(0, height - 1);
-	const lines = visibleUpdates.map((update) =>
-		updateLine(update, context.theme),
-	);
-	const omitted = Math.max(0, totalUpdates - visibleUpdates.length);
-	const summary = omitted > 0 ? `+${omitted} more` : `${totalUpdates} available`;
-	lines.push(
+	if (updates.length === 0 || context.width <= 0 || context.height <= 0) return [];
+	const omitted = snapshot?.updatesOmitted ?? 0;
+	const totalUpdates = updates.length + omitted;
+	const count = omitted === 10_000 ? `${totalUpdates}+` : String(totalUpdates);
+	const urgency = omitted > 0 ? "error" : "warning";
+	return [
 		withRightHint(
-			context.theme.fg("dim", summary),
+			context.theme.fg(urgency, count),
 			context.theme.fg("dim", "/config-status"),
 			context.width,
 		),
-	);
-	return lines;
+	];
 }
 
 export function createConfigUpdatesPanel(pi: ExtensionAPI): SidebarPanel {
