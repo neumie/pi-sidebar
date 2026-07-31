@@ -73,5 +73,9 @@ describe("registerSidebarPanel", () => {
 			() => registerSidebarPanel(pi, { ...panel, showTitleInRight: "no" } as unknown as SidebarPanel),
 			/showTitleInRight/,
 		);
+		assert.throws(
+			() => registerSidebarPanel(pi, { ...panel, placement: "footer" } as unknown as SidebarPanel),
+			/placement/,
+		);
 	});
 });

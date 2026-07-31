@@ -147,6 +147,7 @@ export function createConfigUpdatesPanel(pi: ExtensionAPI): SidebarPanel {
 		title: "Config updates",
 		showTitleInRight: false,
 		showTitleInNarrow: false,
+		placement: "bottom",
 		order: 250,
 		connect(context) {
 			if (disposed) return () => undefined;

@@ -103,15 +103,17 @@ describe("SidebarComponent", () => {
 		assert.equal(contexts[0]?.context.now, contexts[1]?.context.now);
 	});
 
-	it("renders self-identifying right-rail panels without a title row", () => {
+	it("pins self-identifying bottom right-rail panels above the host hint", () => {
 		const lines = component([{
 			id: "example.config",
 			title: "Config updates",
 			showTitleInRight: false,
+			placement: "bottom",
 			render: () => ["4 · /config-status"],
 		}], 5).render(34);
 		assertMinimalRail(lines, 34);
-		assert.match(lines.join("\n"), /^│ 4 · \/config-status/m);
+		assert.match(lines.at(-2) ?? "", /^│ 4 · \/config-status/);
+		assert.match(lines.at(-1) ?? "", /^│ \/sidebar/);
 		assert.doesNotMatch(lines.join("\n"), /Config updates/);
 	});
 
@@ -330,6 +332,21 @@ describe("NarrowSidebarComponent", () => {
 		assertNarrowShelf(lines, 60, "bottom");
 		assert.match(lines[1]!, /^ ◆ reviewer/);
 		assert.doesNotMatch(lines.join("\n"), /Subagents/);
+	});
+
+	it("pins bottom panels at the end of either narrow shelf position", () => {
+		const panels: SidebarPanel[] = [
+			{ id: "example.activity", title: "Activity", showTitleInNarrow: false, order: 10, render: () => ["◆ reviewer"] },
+			{ id: "example.config", title: "Config updates", showTitleInNarrow: false, placement: "bottom", order: 250, render: () => ["4 · /config-status"] },
+		];
+		for (const position of ["top", "bottom"] as const) {
+			const lines = narrowComponent(panels, { position, rows: 7 }).render(60);
+			assertNarrowShelf(lines, 60, position);
+			const indicator = position === "top" ? lines.at(-2) : lines.at(-1);
+			assert.match(indicator ?? "", /^ 4 · \/config-status/);
+			assert.match(lines.join("\n"), /◆ reviewer/);
+			assert.doesNotMatch(lines.join("\n"), /Config updates/);
+		}
 	});
 
 	it("does not change layout at the former two-column threshold", () => {

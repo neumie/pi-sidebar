@@ -225,17 +225,53 @@ export class SidebarComponent implements Component {
 		const lines: string[] = [];
 		const hasHint = height >= 2;
 		const panelLimit = height - (hasHint ? 1 : 0);
-		if (height >= 5 && lines.length < panelLimit) lines.push(row());
+		const now = Date.now();
+		const panels = [...this.options.getPanels()].sort(panelOrder);
+		const bottomLines: CellLine[] = [];
+		for (const panel of [...panels].reverse()) {
+			if (panel.placement !== "bottom") continue;
+			const showTitle = panel.showTitleInRight !== false;
+			const titleRows = showTitle ? 1 : 0;
+			const separatorRows = bottomLines.length > 0 ? 1 : 0;
+			const remainingBodyRows = Math.min(
+				MAX_PANEL_LINES,
+				panelLimit - bottomLines.length - separatorRows - titleRows,
+			);
+			if (remainingBodyRows <= 0) continue;
+			const rendered = renderPanel(
+				panel,
+				contentWidth,
+				bodyWidth,
+				remainingBodyRows,
+				"right",
+				theme,
+				now,
+			);
+			if (rendered.body.length === 0) continue;
+			const bodyIndent = showTitle ? BODY_INDENT : 0;
+			const panelLines: CellLine[] = [
+				...(showTitle
+					? [{ content: theme.fg("muted", theme.bold(rendered.title)) }]
+					: []),
+				...rendered.body.map((content) => ({ content, indent: bodyIndent })),
+			];
+			bottomLines.unshift(...panelLines, ...(separatorRows ? [{ content: "" }] : []));
+		}
+		const flowLimit = Math.max(
+			0,
+			panelLimit - bottomLines.length - (bottomLines.length > 0 && bottomLines.length < panelLimit ? 1 : 0),
+		);
+		if (height >= 5 && lines.length < flowLimit) lines.push(row());
 
 		let renderedPanels = 0;
-		const now = Date.now();
-		for (const panel of [...this.options.getPanels()].sort(panelOrder)) {
+		for (const panel of panels) {
+			if (panel.placement === "bottom") continue;
 			const separatorRows = renderedPanels > 0 ? 1 : 0;
 			const showTitle = panel.showTitleInRight !== false;
 			const titleRows = showTitle ? 1 : 0;
 			const remainingBodyRows = Math.min(
 				MAX_PANEL_LINES,
-				panelLimit - lines.length - separatorRows - titleRows,
+				flowLimit - lines.length - separatorRows - titleRows,
 			);
 			if (remainingBodyRows <= 0) break;
 
@@ -257,20 +293,24 @@ export class SidebarComponent implements Component {
 			renderedPanels += 1;
 		}
 
-		if (renderedPanels === 0 && lines.length < panelLimit) {
+		if (renderedPanels === 0 && bottomLines.length === 0 && lines.length < flowLimit) {
 			const emptyState = [
 				theme.fg("muted", theme.bold("No active work")),
 				theme.fg("dim", "Start a subagent or background job"),
-			].slice(0, panelLimit);
+			].slice(0, flowLimit);
 			if (presentation === "dock") {
 				lines.length = 0;
-				const topPadding = Math.floor((panelLimit - emptyState.length) / 2);
+				const topPadding = Math.floor((flowLimit - emptyState.length) / 2);
 				while (lines.length < topPadding) lines.push(row());
 			}
 			for (const content of emptyState) lines.push(row(centered(content, contentWidth)));
 		}
 		if (presentation === "dock") {
-			while (lines.length < panelLimit) lines.push(row());
+			while (lines.length < flowLimit) lines.push(row());
+		}
+		if (bottomLines.length > 0) {
+			while (lines.length < panelLimit - bottomLines.length) lines.push(row());
+			for (const line of bottomLines) lines.push(row(line.content, line.indent));
 		}
 		if (hasHint && lines.length < height) lines.push(row(theme.fg("dim", "/sidebar")));
 		if (lines.length > height) lines.length = height;
@@ -300,10 +340,39 @@ export class NarrowSidebarComponent implements Component {
 		const contentWidth = Math.max(0, width - LEFT_PADDING - RIGHT_PADDING);
 		const lines: CellLine[] = [];
 		const now = Date.now();
+		const panels = [...this.options.getPanels()].sort(panelOrder);
+		const bottomLines: CellLine[] = [];
+		for (const panel of [...panels].reverse()) {
+			if (panel.placement !== "bottom") continue;
+			const showTitle = panel.showTitleInNarrow !== false;
+			const titleRows = showTitle ? 1 : 0;
+			const separatorRows = bottomLines.length > 0 ? 1 : 0;
+			const bodyHeight = Math.min(
+				SHELF_PANEL_LINES,
+				contentRows - bottomLines.length - separatorRows - titleRows,
+			);
+			if (bodyHeight <= 0) continue;
+			const bodyIndent = showTitle ? BODY_INDENT : 0;
+			const bodyWidth = Math.max(1, contentWidth - bodyIndent);
+			const rendered = renderPanel(panel, contentWidth, bodyWidth, bodyHeight, "narrow", theme, now);
+			if (rendered.body.length === 0) continue;
+			const panelLines: CellLine[] = [
+				...(showTitle
+					? [{ content: theme.fg("muted", theme.bold(rendered.title)) }]
+					: []),
+				...rendered.body.map((content) => ({ content, indent: bodyIndent })),
+			];
+			bottomLines.unshift(...panelLines, ...(separatorRows ? [{ content: "" }] : []));
+		}
+		const flowRows = Math.max(
+			0,
+			contentRows - bottomLines.length - (bottomLines.length > 0 && bottomLines.length < contentRows ? 1 : 0),
+		);
 		let renderedPanels = 0;
 
-		for (const panel of [...this.options.getPanels()].sort(panelOrder)) {
-			const availableRows = contentRows - lines.length;
+		for (const panel of panels) {
+			if (panel.placement === "bottom") continue;
+			const availableRows = flowRows - lines.length;
 			const showTitle = panel.showTitleInNarrow !== false;
 			const titleRows = showTitle ? 1 : 0;
 			const bodyHeight = Math.min(SHELF_PANEL_LINES, availableRows - titleRows);
@@ -323,7 +392,7 @@ export class NarrowSidebarComponent implements Component {
 		const output: string[] = position === "bottom" ? [divider] : [];
 		const contentRow = (content: unknown = "") =>
 			`${" ".repeat(LEFT_PADDING)}${bounded(content, contentWidth, true)}${" ".repeat(RIGHT_PADDING)}`;
-		if (renderedPanels === 0) {
+		if (renderedPanels === 0 && bottomLines.length === 0) {
 			const availablePadding = Math.max(0, contentRows - 2);
 			const stateRow = Math.floor(availablePadding / 2);
 			for (let rowIndex = 0; rowIndex < contentRows; rowIndex += 1) {
@@ -337,8 +406,12 @@ export class NarrowSidebarComponent implements Component {
 				output.push(contentRow(content));
 			}
 		} else {
+			const contentLines = [...lines];
+			while (contentLines.length < contentRows - bottomLines.length)
+				contentLines.push({ content: "" });
+			contentLines.push(...bottomLines);
 			for (let rowIndex = 0; rowIndex < contentRows; rowIndex += 1) {
-				const cell = lines[rowIndex];
+				const cell = contentLines[rowIndex];
 				const indent = Math.min(Math.max(0, cell?.indent ?? 0), contentWidth);
 				const content = `${" ".repeat(indent)}${bounded(cell?.content ?? "", contentWidth - indent, true)}`;
 				output.push(contentRow(content));

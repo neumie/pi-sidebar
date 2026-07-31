@@ -175,6 +175,7 @@ describe("config updates panel", () => {
 		assert.equal(typeof disconnect, "function");
 		assert.equal(panel.showTitleInRight, false);
 		assert.equal(panel.showTitleInNarrow, false);
+		assert.equal(panel.placement, "bottom");
 		await tick();
 		const requests = () =>
 			events.emitted.filter((entry) => entry.event === CONFIG_STATUS_REQUEST_EVENT);

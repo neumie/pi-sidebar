@@ -23,7 +23,7 @@ sidebar surface
 
 ## Public seam
 
-A provider knows four facts: stable identity, title/order, session connection lifecycle, and synchronous rendering. It does not know how the host obtains the TUI, reserves width, mounts overlays, handles reload, or chooses a future native API.
+A provider knows five facts: stable identity, title/order/placement, session connection lifecycle, and synchronous rendering. It does not know how the host obtains the TUI, reserves width, mounts overlays, handles reload, or chooses a future native API.
 
 Registration uses versioned `pi.events` messages rather than a public mutable global. Providers announce immediately and again whenever a host emits readiness. Each registration has an opaque token; replacement is atomic by panel id and stale unregister messages are ignored.
 
@@ -37,7 +37,7 @@ The dock adapter captures the active `tui.render` function and replaces it with 
 
 The sidebar itself is one `TUI.showOverlay()` component anchored at top-right with `nonCapturing: true`. TUI overlay compositing still uses the physical terminal width, so it paints into the columns withheld from the main renderer.
 
-The renderer is a flat, unlabeled activity rail: every emitted row has one host-owned dim-gray left divider and one content inset, with no reserved trailing padding. Panel bodies add one more column of indentation, so a configured width `W` yields provider body width `W - 3`. This compact hierarchy distinguishes live values from section labels while returning three columns to provider content. The divider itself is sufficient separation, so the default dock gutter is zero. Whitespace separates visible sections; no top, right, bottom, or horizontal-rule chrome is emitted. The empty state names the state and directs the user to start a subagent or background job.
+The renderer is a flat, unlabeled activity rail: every emitted row has one host-owned dim-gray left divider and one content inset, with no reserved trailing padding. Panels with `placement: "bottom"` reserve final body row(s) above the host-owned `/sidebar` hint; ordinary panels retain ordered flow above them. Panel bodies add one more column of indentation, so a configured width `W` yields provider body width `W - 3`. This compact hierarchy distinguishes live values from section labels while returning three columns to provider content. The divider itself is sufficient separation, so the default dock gutter is zero. Whitespace separates visible sections; no top, right, bottom, or horizontal-rule chrome is emitted. The empty state names the state and directs the user to start a subagent or background job.
 
 ### Configurable narrow shelf
 
@@ -45,7 +45,7 @@ When the right rail does not fit and the terminal is at least 32 columns by 32 r
 
 The adaptive widget returns no rows while a live post-footer handle owns bottom placement or when the rail fits, and is remounted when the configured position changes. Capability and registration handles are exact-session and generation-safe. Replacement is atomic: a failed capability leaves the current live handle untouched; a successful replacement is installed before the prior handle is disposed. Session/widget teardown disposes the active handle. Neither path appends, deletes, overwrites, or inspects root/editor lines, so transient slash roots remain entirely Pi-owned.
 
-The shared narrow renderer uses six content rows and one full-width dim-gray divider: below content in `top`, above content in `bottom`. It always stacks visible panels in one column using the shelf's full usable width. Panels may opt out of their narrow title only when their body is self-identifying; the built-in activity adapters use an accent `◆` for agents and a success `▸` for background jobs. The reclaimed heading row and inset return directly to that provider. A panel may use up to five body rows; actual returned rows determine what remains for later panels, and panel detail takes precedence over an inter-panel spacer.
+The shared narrow renderer uses six content rows and one full-width dim-gray divider: below content in `top`, above content in `bottom`. It always stacks visible panels in one column using the shelf's full usable width, reserving the final content row(s) for `placement: "bottom"` panels. Panels may opt out of their narrow title only when their body is self-identifying; the built-in activity adapters use an accent `◆` for agents and a success `▸` for background jobs. The reclaimed heading row and inset return directly to that provider. A panel may use up to five body rows; actual returned rows determine what remains for later panels, and panel detail takes precedence over an inter-panel spacer.
 
 ### Overlay fallback
 
