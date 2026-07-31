@@ -5,6 +5,10 @@ A docked, extensible activity sidebar for [Pi](https://pi.dev), rendered as a fl
 ```text
 Wide terminal
 Pi transcript and tools                         │
+                                                │ Goal
+                                                │  ◆ active
+                                                │  Verify compatibility
+                                                │
                                                 │ Subagents
                                                 │  ◆ reviewer · 18s
                                                 │
@@ -30,6 +34,7 @@ Pi session footer                 ◆ 2 agents · ▸ 3 jobs
 - Reserves a right-hand column so Pi's transcript, editor, widgets, and footer reflow instead of rendering underneath it.
 - Minimal chrome: one quiet structural divider—left for the right rail, above a bottom shelf, or below a top shelf—plus whitespace hierarchy and accent reserved for live activity.
 - Does not replace the footer; with [`pi-footer`](https://github.com/neumie/pi-footer) 0.4.0 or newer, the narrow-bottom shelf composes after the footer. When no sidebar surface fits or `/sidebar off` is active, bounded agent/job counts move into Pi's ordinary right-side footer status area.
+- Zero-config [`pi-subagents-goal`](https://github.com/neumie/pi-subagents-goal) panel through its versioned, session-scoped, display-safe status API.
 - Zero-config [`pi-subagents`](https://github.com/neumie/pi-subagents) panel through its versioned in-process RPC and lifecycle events.
 - Zero-config [`pi-background-jobs`](https://github.com/neumie/pi-background-jobs) panel that fills available rows from a bounded, private-ID-free activity snapshot.
 - Degraded-only Integrations panel for actionable LSP failures and observed MCP authentication/connectivity failures; healthy, inactive, cached, and lazily disconnected integrations stay hidden.
@@ -90,6 +95,10 @@ In `auto` and `dock` modes, the right rail wins whenever the terminal can fit th
 The configured right-rail width includes the divider and compact internal hierarchy. Right-rail providers receive `configured width - 3` body columns: one divider, one heading inset, and one additional body indent, with no reserved trailing column. Narrow-shelf providers receive the shelf's full usable width. Provider height always excludes host-owned headings and section spacing.
 
 ## Built-in integrations
+
+### pi-subagents-goal
+
+The adapter requests and consumes `@neumie/pi-subagents-goal:v1:status`. A live goal shows its phase, objective, work counts, bounded child labels/states, review verdict, and pause/fault reason. Exact session matching plus provider-instance sequence checks reject foreign, stale, malformed, and hostile payloads. Session files, ownership/item IDs, acknowledgement/review tokens, digests, findings, and child output never enter the panel contract. Terminal completed/cancelled goals hide the panel.
 
 ### pi-subagents
 
@@ -163,7 +172,7 @@ Panel rules:
 
 ## Compatibility
 
-Pi 0.82.1 does not expose a native column-reserving side-panel API. In `auto` mode this package uses the least invasive working technique found in current community packages:
+Pi 0.83.0 does not expose a native column-reserving side-panel API. In `auto` mode this package uses the least invasive working technique found in current community packages:
 
 1. capture Pi's public `TUI` through a zero-height widget factory;
 2. wrap `tui.render(width)` so the normal UI receives the remaining main width;

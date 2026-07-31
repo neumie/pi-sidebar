@@ -7,6 +7,12 @@ import {
 	parseBackgroundJobsPayload,
 } from "../src/adapters/background-jobs.ts";
 import {
+	GOAL_STATUS_EVENT,
+	GOAL_STATUS_REQUEST_EVENT,
+	createGoalPanel,
+	parseGoalStatusEnvelope,
+} from "../src/adapters/goals.ts";
+import {
 	FOOTER_STATUS_SOURCE_READY_EVENT,
 	FOOTER_STATUS_SOURCE_REQUEST_EVENT,
 	createIntegrationsPanel,
@@ -64,6 +70,7 @@ function connect(
 	panel:
 		| ReturnType<typeof createSubagentsPanel>
 		| ReturnType<typeof createBackgroundJobsPanel>
+		| ReturnType<typeof createGoalPanel>
 		| ReturnType<typeof createIntegrationsPanel>,
 	invalidate = () => undefined,
 	session = "adapter-test-session",
@@ -78,6 +85,117 @@ function connect(
 	assert.equal(typeof dispose, "function");
 	return dispose as () => void;
 }
+
+function goalStatus(overrides: Record<string, unknown> = {}) {
+	return {
+		version: 1,
+		providerId: "goal-provider",
+		sequence: 1,
+		sessionId: "adapter-test-session",
+		goal: {
+			epoch: 1,
+			phase: "active",
+			live: true,
+			objective: "Verify goal status integration",
+			startedAt: 100,
+			updatedAt: 200,
+			work: {
+				total: 1,
+				active: 1,
+				terminal: 0,
+				unread: 0,
+				unsuccessful: 0,
+				items: [
+					{
+						label: "Inspect compatibility",
+						role: "work",
+						state: "running",
+						outputState: "awaiting",
+					},
+				],
+				itemsOmitted: 0,
+			},
+			budget: {
+				limits: {
+					maxAutomaticTurns: 20,
+					maxTokens: null,
+					maxWallClockMs: null,
+					maxNoProgressTurns: 3,
+				},
+				usage: { automaticTurns: 1, tokens: 25, noProgressTurns: 0 },
+			},
+			review: "none",
+		},
+		...overrides,
+	};
+}
+
+describe("goal adapter", () => {
+	it("strictly parses the versioned display-safe envelope", () => {
+		assert.equal(parseGoalStatusEnvelope(goalStatus())?.goal?.phase, "active");
+		assert.equal(parseGoalStatusEnvelope({ ...goalStatus(), version: 2 }), undefined);
+		assert.equal(
+			parseGoalStatusEnvelope({
+				...goalStatus(),
+				goal: { ...(goalStatus().goal as object), live: false },
+			}),
+			undefined,
+		);
+		const hostile = new Proxy({}, { get: () => { throw new Error("hostile"); } });
+		assert.doesNotThrow(() => parseGoalStatusEnvelope(hostile));
+		assert.equal(parseGoalStatusEnvelope(hostile), undefined);
+	});
+
+	it("requests, renders, and clears only matching session state", () => {
+		const { pi, events } = fakePi();
+		const requests: unknown[] = [];
+		events.on(GOAL_STATUS_REQUEST_EVENT, (request) => requests.push(request));
+		const panel = createGoalPanel(pi);
+		let invalidations = 0;
+		const disconnect = connect(panel, () => { invalidations += 1; });
+		assert.deepEqual(requests, [{ version: 1, sessionId: "adapter-test-session" }]);
+		assert.deepEqual(panel.render({ width: 40, height: 8, theme, now: 300 }), []);
+
+		events.emit(GOAL_STATUS_EVENT, goalStatus({ sessionId: "foreign" }));
+		assert.equal(invalidations, 0);
+		events.emit(GOAL_STATUS_EVENT, goalStatus());
+		const render = () => panel.render({ width: 40, height: 8, theme, now: 300 }).join("\n");
+		assert.match(render(), /active/u);
+		assert.match(render(), /Verify goal status integration/u);
+		assert.match(render(), /Inspect compatibility · running/u);
+		assert.doesNotMatch(render(), /provider|session|goalId|lineage/u);
+		assert.equal(invalidations, 1);
+		assert.equal(panel.hiddenStatus, undefined);
+
+		events.emit(
+			GOAL_STATUS_EVENT,
+			goalStatus({ goal: { ...(goalStatus().goal as object), phase: "completed", live: false } }),
+		);
+		assert.match(render(), /active/u);
+		assert.equal(invalidations, 1);
+
+		events.emit(
+			GOAL_STATUS_EVENT,
+			goalStatus({
+				providerId: "replacement-provider",
+				goal: { ...(goalStatus().goal as object), phase: "paused", live: true },
+			}),
+		);
+		assert.match(render(), /paused/u);
+		assert.equal(invalidations, 2);
+
+		events.emit(
+			GOAL_STATUS_EVENT,
+			goalStatus({
+				providerId: "replacement-provider",
+				sequence: 2,
+				goal: { ...(goalStatus().goal as object), phase: "completed", live: false },
+			}),
+		);
+		assert.deepEqual(panel.render({ width: 40, height: 8, theme, now: 300 }), []);
+		disconnect();
+	});
+});
 
 describe("background jobs adapter", () => {
 	it("accepts the documented bounded aggregate payload", () => {

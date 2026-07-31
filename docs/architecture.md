@@ -2,7 +2,7 @@
 
 ## Goal
 
-`pi-sidebar` is one layout owner with many read-only panel providers. The public interface stays small while the unsupported Pi 0.82.x compatibility work remains local to one adapter.
+`pi-sidebar` is one layout owner with many read-only panel providers. The public interface stays small while the unsupported Pi 0.83.x compatibility work remains local to one adapter.
 
 ```text
 registerSidebarPanel()
@@ -79,6 +79,14 @@ Terminals that fit neither the right rail nor the minimum narrow geometry hide t
 
 ## Integration contracts
 
+### pi-subagents-goal
+
+- request/replay: `@neumie/pi-subagents-goal:v1:status-request` with exact `sessionId`;
+- state: `@neumie/pi-subagents-goal:v1:status` with provider ID and monotonic sequence;
+- display fields: objective, phase, timestamps, aggregates, at most 128 recent work labels plus omitted count, optional limits/usage, continuation/review state, and generic reason.
+
+The adapter validates the complete v1 display DTO, rejects foreign sessions, stale sequences, malformed counters and cross-field inconsistencies, and sanitizes every rendered line through the host. It never receives session files, owner/item IDs, acknowledgement/review tokens, digests, raw faults, or child output. Completed/cancelled goals consume no rows.
+
 ### pi-subagents
 
 - discovery: `subagents:rpc:v1:ready`
@@ -99,7 +107,7 @@ Each structured summary carries only an optional bounded display label and `star
 
 ### LSP health through pi-footer
 
-Pi 0.82.1 exposes its read-only extension-status map only to custom footer factories. `pi-footer` therefore publishes a temporary capability rather than pushing snapshots from its render path:
+Pi 0.83.0 exposes its read-only extension-status map only to custom footer factories. `pi-footer` therefore publishes a temporary capability rather than pushing snapshots from its render path:
 
 - request: `pi-footer:status-source:v1:request` with `{ version: 1, sessionId }`
 - ready/replay: `pi-footer:status-source:v1:ready` with `{ version: 1, sessionId, token, readStatuses }`
@@ -115,7 +123,7 @@ This is deliberately reactive: `pi-mcp-adapter` has no documented push health ev
 
 ## pi-footer post-footer composition
 
-Pi 0.82.1 hardcodes `belowEditor` widgets before its footer and offers no `belowFooter` placement. `pi-footer` 0.4.0 therefore exposes `pi-footer:post-footer:v1:request` / `ready`. The ready payload carries an exact-session registration function; the sidebar contributes only its synchronous bounded renderer and keeps ownership of all activity state. The footer validates and caps lines, isolates failures, and returns a handle whose `isActive()` state controls the ordinary widget fallback. Replayed capabilities replace handles atomically, and stale handles cannot suppress a replacement session's widget.
+Pi 0.83.0 hardcodes `belowEditor` widgets before its footer and offers no `belowFooter` placement. `pi-footer` 0.4.0 therefore exposes `pi-footer:post-footer:v1:request` / `ready`. The ready payload carries an exact-session registration function; the sidebar contributes only its synchronous bounded renderer and keeps ownership of all activity state. The footer validates and caps lines, isolates failures, and returns a handle whose `isActive()` state controls the ordinary widget fallback. Replayed capabilities replace handles atomically, and stale handles cannot suppress a replacement session's widget.
 
 ## Future native Pi API
 
