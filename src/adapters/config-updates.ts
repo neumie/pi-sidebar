@@ -100,9 +100,11 @@ export function renderConfigUpdates(
 	const omitted = snapshot?.updatesOmitted ?? 0;
 	const totalUpdates = updates.length + omitted;
 	const count = omitted === 10_000 ? `${totalUpdates}+` : String(totalUpdates);
+	const hint = " · /config-status";
+	const leftPadding = " ".repeat(Math.max(0, context.width - count.length - hint.length));
 	const urgency = omitted > 0 ? "error" : "warning";
 	return [
-		`${context.theme.fg(urgency, count)}${context.theme.fg("dim", " · /config-status")}`,
+		`${leftPadding}${context.theme.fg(urgency, count)}${context.theme.fg("dim", hint)}`,
 	];
 }
 

@@ -113,7 +113,7 @@ Each structured summary carries only an optional bounded display label and `star
 - snapshot: `@neumie/config-status:v1:snapshot`
 - display fields: checked timestamp, at most 64 actionable update names/kinds/versions/summaries, and an omitted count capped at 10,000
 
-The adapter requests once per connection; successful `/config-status` runs publish through the same snapshot event. It validates the complete bounded payload, rejects controls and malformed versions/counts, and renders immediately eligible `update` entries only as one titleless row with a `/config-status` hint. Names, versions, and summaries never enter the sidebar; snapshot overflow raises the count color from warning to error. It does not poll, inspect `pi-config` internals, or display current, dirty/attention-only, failed-verification, or age-held entries. A missing provider leaves the panel absent.
+The adapter requests once per connection; successful `/config-status` runs publish through the same snapshot event. It validates the complete bounded payload, rejects controls and malformed versions/counts, and renders immediately eligible `update` entries only as one right-aligned, titleless row with a `/config-status` hint. Names, versions, and summaries never enter the sidebar; snapshot overflow raises the count color from warning to error. It does not poll, inspect `pi-config` internals, or display current, dirty/attention-only, failed-verification, or age-held entries. A missing provider leaves the panel absent.
 
 ### LSP health through pi-footer
 

@@ -143,13 +143,23 @@ describe("config update snapshots", () => {
 		};
 		const lines = renderConfigUpdates(snapshot, context);
 		assert.equal(lines.length, 1);
-		assert.equal(lines[0], "4 · /config-status");
+		assert.equal(lines[0]?.length, context.width);
+		assert.ok(lines[0]?.endsWith("4 · /config-status"));
 		assert.doesNotMatch(lines[0] ?? "", /pi|narumitw|subagents|web-access/);
 		assert.equal(colors[0], "warning");
 
+		const narrow = renderConfigUpdates(snapshot, {
+			...context,
+			width: 40,
+			surface: "narrow",
+		});
+		assert.equal(narrow[0]?.length, 40);
+		assert.ok(narrow[0]?.endsWith("4 · /config-status"));
+
 		colors.length = 0;
 		const overflow = renderConfigUpdates({ ...snapshot, updatesOmitted: 2 }, context);
-		assert.equal(overflow[0], "6 · /config-status");
+		assert.equal(overflow[0]?.length, context.width);
+		assert.ok(overflow[0]?.endsWith("6 · /config-status"));
 		assert.equal(colors[0], "error");
 		assert.deepEqual(
 			renderConfigUpdates({ ...snapshot, updates: [], updatesOmitted: 0 }, renderContext()),
@@ -189,7 +199,9 @@ describe("config updates panel", () => {
 		assert.equal(requests().length, 2);
 		events.emit(CONFIG_STATUS_SNAPSHOT_EVENT, snapshot);
 		assert.equal(invalidations, 1);
-		assert.equal(panel.render(renderContext())[0], "4 · /config-status");
+		const rendered = panel.render(renderContext())[0];
+		assert.equal(rendered?.length, renderContext().width);
+		assert.ok(rendered?.endsWith("4 · /config-status"));
 
 		events.emit(CONFIG_STATUS_SNAPSHOT_EVENT, {
 			...snapshot,

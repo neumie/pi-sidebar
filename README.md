@@ -113,7 +113,7 @@ The adapter consumes the stable `background-jobs:changed` payload. With `pi-back
 
 ### Config updates
 
-The adapter requests `@neumie/config-status:v1:snapshot` once when the sidebar connects and refreshes whenever `/config-status` runs. It counts only updates that are eligible now—such as an npm version that satisfies `min-release-age` or a local fork behind its parent—and hides current, dirty/attention-only, error, and age-held entries. The sidebar renders one titleless line—`4 · /config-status`—at the bottom of the right rail or the end of a narrow shelf; individual package names, versions, and summaries remain exclusively in the command. Ordinary availability uses the warning color, while snapshot overflow uses the error color. Missing or incompatible providers simply hide the panel.
+The adapter requests `@neumie/config-status:v1:snapshot` once when the sidebar connects and refreshes whenever `/config-status` runs. It counts only updates that are eligible now—such as an npm version that satisfies `min-release-age` or a local fork behind its parent—and hides current, dirty/attention-only, error, and age-held entries. The sidebar renders one titleless line—`4 · /config-status`—right-aligned at the bottom of the right rail or the end of a narrow shelf; individual package names, versions, and summaries remain exclusively in the command. Ordinary availability uses the warning color, while snapshot overflow uses the error color. Missing or incompatible providers simply hide the panel.
 
 ### Degraded integrations
 
