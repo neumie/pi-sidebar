@@ -37,7 +37,7 @@ Pi session footer                 ◆ 2 agents · ▸ 3 jobs
 - Zero-config [`pi-subagents-goal`](https://github.com/neumie/pi-subagents-goal) panel through its versioned, session-scoped, display-safe status API.
 - Zero-config [`pi-subagents`](https://github.com/neumie/pi-subagents) panel through its versioned in-process RPC and lifecycle events.
 - Zero-config [`pi-background-jobs`](https://github.com/neumie/pi-background-jobs) panel that fills available rows from a bounded, private-ID-free activity snapshot.
-- Actionable-only extension update count through `pi-config`'s bounded, versioned config-status snapshot protocol; details stay in `/extension-updates`, whose compact hint shares the host's final command row.
+- Actionable-only extension update count through `pi-config`'s bounded, versioned extension-updates snapshot protocol; details stay in `/extension-updates`, whose compact hint shares the host's final command row.
 - Degraded-only Integrations panel for actionable LSP failures and observed MCP authentication/connectivity failures; healthy, inactive, cached, and lazily disconnected integrations stay hidden.
 - One layout owner for multiple independently installed panel providers.
 - Non-capturing UI: normal keyboard input stays with Pi's editor.
@@ -113,7 +113,7 @@ The adapter consumes the stable `background-jobs:changed` payload. With `pi-back
 
 ### Extension updates
 
-The adapter requests `@neumie/config-status:v1:snapshot` once when the sidebar connects and refreshes whenever `/extension-updates` runs. It counts only updates that are eligible now—such as an npm version that satisfies `min-release-age` or a local fork behind its parent—and hides current, dirty/attention-only, error, and age-held entries. The sidebar renders `/extension-updates (4)` at the right edge of the same final row that keeps `/sidebar` on the left; individual package names, versions, and summaries remain exclusively in the command. Ordinary availability uses the warning color, while snapshot overflow uses the error color. Missing or incompatible providers simply hide the panel.
+The adapter requests `@neumie/extension-updates:v1:snapshot` once when the sidebar connects and refreshes whenever `/extension-updates` runs. It counts only updates that are eligible now—such as an npm version that satisfies `min-release-age` or a local fork behind its parent—and hides current, dirty/attention-only, error, and age-held entries. The sidebar renders `/extension-updates (4)` at the right edge of the same final row that keeps `/sidebar` on the left; individual package names, versions, and summaries remain exclusively in the command. Ordinary availability uses the warning color, while snapshot overflow uses the error color. Missing or incompatible providers simply hide the panel.
 
 ### Degraded integrations
 

@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerSidebarPanel } from "../src/api.ts";
 import { createBackgroundJobsPanel } from "../src/adapters/background-jobs.ts";
-import { createConfigUpdatesPanel } from "../src/adapters/config-updates.ts";
+import { createExtensionUpdatesPanel } from "../src/adapters/extension-updates.ts";
 import { createGoalPanel } from "../src/adapters/goals.ts";
 import { createIntegrationsPanel } from "../src/adapters/integrations.ts";
 import { createSubagentsPanel } from "../src/adapters/subagents.ts";
@@ -13,5 +13,5 @@ export default function sidebar(pi: ExtensionAPI): void {
 	registerSidebarPanel(pi, createSubagentsPanel(pi));
 	registerSidebarPanel(pi, createIntegrationsPanel(pi));
 	registerSidebarPanel(pi, createBackgroundJobsPanel(pi));
-	registerSidebarPanel(pi, createConfigUpdatesPanel(pi));
+	registerSidebarPanel(pi, createExtensionUpdatesPanel(pi));
 }

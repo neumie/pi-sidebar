@@ -108,9 +108,9 @@ Each structured summary carries only an optional bounded display label and `star
 
 ### Extension updates protocol
 
-- discovery: `@neumie/config-status:v1:ready`
-- request: `@neumie/config-status:v1:request`
-- snapshot: `@neumie/config-status:v1:snapshot`
+- discovery: `@neumie/extension-updates:v1:ready`
+- request: `@neumie/extension-updates:v1:request`
+- snapshot: `@neumie/extension-updates:v1:snapshot`
 - display fields: checked timestamp, at most 64 actionable update names/kinds/versions/summaries, and an omitted count capped at 10,000
 
 The adapter requests once per connection; successful `/extension-updates` runs publish through the same snapshot event. It validates the complete bounded payload, rejects controls and malformed versions/counts, and renders immediately eligible `update` entries only as `/extension-updates (N)` in a shared host hint row. Names, versions, and summaries never enter the sidebar; snapshot overflow raises the count color from warning to error. It does not poll, inspect `pi-config` internals, or display current, dirty/attention-only, failed-verification, or age-held entries. A missing provider leaves the panel absent.

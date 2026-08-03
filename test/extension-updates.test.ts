@@ -7,14 +7,14 @@ import type {
 	Theme,
 } from "@earendil-works/pi-coding-agent";
 import {
-	CONFIG_STATUS_READY_EVENT,
-	CONFIG_STATUS_REQUEST_EVENT,
-	CONFIG_STATUS_SNAPSHOT_EVENT,
-	createConfigUpdatesPanel,
-	parseConfigStatusSnapshot,
-	renderConfigUpdates,
-	type ConfigStatusSnapshotV1,
-} from "../src/adapters/config-updates.ts";
+	EXTENSION_UPDATES_READY_EVENT,
+	EXTENSION_UPDATES_REQUEST_EVENT,
+	EXTENSION_UPDATES_SNAPSHOT_EVENT,
+	createExtensionUpdatesPanel,
+	parseExtensionUpdatesSnapshot,
+	renderExtensionUpdates,
+	type ExtensionUpdatesSnapshotV1,
+} from "../src/adapters/extension-updates.ts";
 
 class EventBus {
 	private listeners = new Map<string, Set<(payload: unknown) => void>>();
@@ -56,7 +56,7 @@ const theme = {
 	bold: (text: string) => text,
 } as unknown as Theme;
 
-const snapshot: ConfigStatusSnapshotV1 = {
+const snapshot: ExtensionUpdatesSnapshotV1 = {
 	version: 1,
 	checkedAt: "2026-07-31T12:00:00.000Z",
 	updates: [
@@ -98,33 +98,33 @@ function renderContext(width = 60, height = 3) {
 	};
 }
 
-describe("config update snapshots", () => {
+describe("extension update snapshots", () => {
 	it("validates the complete bounded v1 display contract", () => {
-		assert.deepEqual(parseConfigStatusSnapshot(snapshot), snapshot);
+		assert.deepEqual(parseExtensionUpdatesSnapshot(snapshot), snapshot);
 		assert.equal(
-			parseConfigStatusSnapshot({ ...snapshot, version: 2 }),
+			parseExtensionUpdatesSnapshot({ ...snapshot, version: 2 }),
 			undefined,
 		);
 		assert.equal(
-			parseConfigStatusSnapshot({
+			parseExtensionUpdatesSnapshot({
 				...snapshot,
 				updates: [{ ...snapshot.updates[0], name: "unsafe\nname" }],
 			}),
 			undefined,
 		);
 		assert.equal(
-			parseConfigStatusSnapshot({
+			parseExtensionUpdatesSnapshot({
 				...snapshot,
 				updates: Array.from({ length: 65 }, () => snapshot.updates[0]),
 			}),
 			undefined,
 		);
 		assert.equal(
-			parseConfigStatusSnapshot({ ...snapshot, updatesOmitted: -1 }),
+			parseExtensionUpdatesSnapshot({ ...snapshot, updatesOmitted: -1 }),
 			undefined,
 		);
 		assert.equal(
-			parseConfigStatusSnapshot({ ...snapshot, updatesOmitted: 10_001 }),
+			parseExtensionUpdatesSnapshot({ ...snapshot, updatesOmitted: 10_001 }),
 			undefined,
 		);
 	});
@@ -141,12 +141,12 @@ describe("config update snapshots", () => {
 				},
 			} as Theme,
 		};
-		const lines = renderConfigUpdates(snapshot, context);
+		const lines = renderExtensionUpdates(snapshot, context);
 		assert.deepEqual(lines, ["/extension-updates (4)"]);
 		assert.doesNotMatch(lines[0] ?? "", /pi|narumitw|subagents|web-access/);
 		assert.deepEqual(colors, ["dim", "warning"]);
 
-		const narrow = renderConfigUpdates(snapshot, {
+		const narrow = renderExtensionUpdates(snapshot, {
 			...context,
 			width: 40,
 			surface: "narrow",
@@ -154,20 +154,20 @@ describe("config update snapshots", () => {
 		assert.deepEqual(narrow, ["/extension-updates (4)"]);
 
 		colors.length = 0;
-		const overflow = renderConfigUpdates({ ...snapshot, updatesOmitted: 2 }, context);
+		const overflow = renderExtensionUpdates({ ...snapshot, updatesOmitted: 2 }, context);
 		assert.deepEqual(overflow, ["/extension-updates (6)"]);
 		assert.deepEqual(colors, ["dim", "error"]);
 		assert.deepEqual(
-			renderConfigUpdates({ ...snapshot, updates: [], updatesOmitted: 0 }, renderContext()),
+			renderExtensionUpdates({ ...snapshot, updates: [], updatesOmitted: 0 }, renderContext()),
 			[],
 		);
 	});
 });
 
-describe("config updates panel", () => {
+describe("extension updates panel", () => {
 	it("requests on connect/provider readiness and hides empty snapshots", async () => {
 		const { pi, events, shutdown } = fakePi();
-		const panel = createConfigUpdatesPanel(pi);
+		const panel = createExtensionUpdatesPanel(pi);
 		let invalidations = 0;
 		const controller = new AbortController();
 		const disconnect = panel.connect?.({
@@ -184,20 +184,20 @@ describe("config updates panel", () => {
 		assert.equal(panel.placement, "hint");
 		await tick();
 		const requests = () =>
-			events.emitted.filter((entry) => entry.event === CONFIG_STATUS_REQUEST_EVENT);
+			events.emitted.filter((entry) => entry.event === EXTENSION_UPDATES_REQUEST_EVENT);
 		assert.equal(requests().length, 1);
 		assert.deepEqual(requests()[0]?.payload, {
 			version: 1,
 			source: { extension: "@neumie/pi-sidebar" },
 		});
 
-		events.emit(CONFIG_STATUS_READY_EVENT, { version: 1 });
+		events.emit(EXTENSION_UPDATES_READY_EVENT, { version: 1 });
 		assert.equal(requests().length, 2);
-		events.emit(CONFIG_STATUS_SNAPSHOT_EVENT, snapshot);
+		events.emit(EXTENSION_UPDATES_SNAPSHOT_EVENT, snapshot);
 		assert.equal(invalidations, 1);
 		assert.equal(panel.render(renderContext())[0], "/extension-updates (4)");
 
-		events.emit(CONFIG_STATUS_SNAPSHOT_EVENT, {
+		events.emit(EXTENSION_UPDATES_SNAPSHOT_EVENT, {
 			...snapshot,
 			updates: [],
 			updatesOmitted: 0,
@@ -205,12 +205,12 @@ describe("config updates panel", () => {
 		assert.equal(invalidations, 2);
 		assert.deepEqual(panel.render(renderContext()), []);
 
-		events.emit(CONFIG_STATUS_SNAPSHOT_EVENT, { ...snapshot, version: 2 });
+		events.emit(EXTENSION_UPDATES_SNAPSHOT_EVENT, { ...snapshot, version: 2 });
 		assert.equal(invalidations, 2);
 		assert.deepEqual(panel.render(renderContext()), []);
 		if (typeof disconnect === "function") disconnect();
 		shutdown();
-		events.emit(CONFIG_STATUS_READY_EVENT, { version: 1 });
+		events.emit(EXTENSION_UPDATES_READY_EVENT, { version: 1 });
 		assert.equal(requests().length, 2);
 	});
 });

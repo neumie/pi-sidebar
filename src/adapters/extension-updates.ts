@@ -4,10 +4,10 @@ import type {
 	SidebarPanelRenderContext,
 } from "../api.ts";
 
-export const CONFIG_STATUS_PROTOCOL_VERSION = 1 as const;
-export const CONFIG_STATUS_READY_EVENT = "@neumie/config-status:v1:ready";
-export const CONFIG_STATUS_REQUEST_EVENT = "@neumie/config-status:v1:request";
-export const CONFIG_STATUS_SNAPSHOT_EVENT = "@neumie/config-status:v1:snapshot";
+export const EXTENSION_UPDATES_PROTOCOL_VERSION = 1 as const;
+export const EXTENSION_UPDATES_READY_EVENT = "@neumie/extension-updates:v1:ready";
+export const EXTENSION_UPDATES_REQUEST_EVENT = "@neumie/extension-updates:v1:request";
+export const EXTENSION_UPDATES_SNAPSHOT_EVENT = "@neumie/extension-updates:v1:snapshot";
 
 const MAX_UPDATES = 64;
 const MAX_NAME_CHARS = 160;
@@ -15,17 +15,17 @@ const MAX_VERSION_CHARS = 80;
 const MAX_DETAIL_CHARS = 640;
 const KINDS = new Set(["local", "npm", "git", "unknown"]);
 
-export interface ConfigStatusUpdateV1 {
+export interface ExtensionUpdateV1 {
 	name: string;
 	version?: string;
 	kind: "local" | "npm" | "git" | "unknown";
 	detail: string;
 }
 
-export interface ConfigStatusSnapshotV1 {
-	version: typeof CONFIG_STATUS_PROTOCOL_VERSION;
+export interface ExtensionUpdatesSnapshotV1 {
+	version: typeof EXTENSION_UPDATES_PROTOCOL_VERSION;
 	checkedAt: string;
-	updates: ConfigStatusUpdateV1[];
+	updates: ExtensionUpdateV1[];
 	updatesOmitted: number;
 }
 
@@ -43,7 +43,7 @@ function safeLine(value: unknown, maxChars: number): value is string {
 	);
 }
 
-function parseUpdate(value: unknown): ConfigStatusUpdateV1 | undefined {
+function parseUpdate(value: unknown): ExtensionUpdateV1 | undefined {
 	const update = record(value);
 	if (!safeLine(update?.name, MAX_NAME_CHARS)) return undefined;
 	if (!safeLine(update.detail, MAX_DETAIL_CHARS)) return undefined;
@@ -59,7 +59,7 @@ function parseUpdate(value: unknown): ConfigStatusUpdateV1 | undefined {
 		...(typeof update.version === "string"
 			? { version: update.version }
 			: {}),
-		kind: update.kind as ConfigStatusUpdateV1["kind"],
+		kind: update.kind as ExtensionUpdateV1["kind"],
 		detail: update.detail,
 	};
 }
@@ -68,31 +68,31 @@ function validOmittedCount(value: unknown): value is number {
 	return Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 10_000;
 }
 
-export function parseConfigStatusSnapshot(
+export function parseExtensionUpdatesSnapshot(
 	value: unknown,
-): ConfigStatusSnapshotV1 | undefined {
+): ExtensionUpdatesSnapshotV1 | undefined {
 	const envelope = record(value);
-	if (envelope?.version !== CONFIG_STATUS_PROTOCOL_VERSION) return undefined;
+	if (envelope?.version !== EXTENSION_UPDATES_PROTOCOL_VERSION) return undefined;
 	if (!safeLine(envelope.checkedAt, 80)) return undefined;
 	if (!Array.isArray(envelope.updates)) return undefined;
 	if (envelope.updates.length > MAX_UPDATES) return undefined;
 	if (!validOmittedCount(envelope.updatesOmitted)) return undefined;
-	const updates: ConfigStatusUpdateV1[] = [];
+	const updates: ExtensionUpdateV1[] = [];
 	for (const raw of envelope.updates) {
 		const update = parseUpdate(raw);
 		if (!update) return undefined;
 		updates.push(update);
 	}
 	return {
-		version: CONFIG_STATUS_PROTOCOL_VERSION,
+		version: EXTENSION_UPDATES_PROTOCOL_VERSION,
 		checkedAt: envelope.checkedAt,
 		updates,
 		updatesOmitted: envelope.updatesOmitted,
 	};
 }
 
-export function renderConfigUpdates(
-	snapshot: ConfigStatusSnapshotV1 | undefined,
+export function renderExtensionUpdates(
+	snapshot: ExtensionUpdatesSnapshotV1 | undefined,
 	context: SidebarPanelRenderContext,
 ): string[] {
 	const updates = snapshot?.updates ?? [];
@@ -109,8 +109,8 @@ export function renderConfigUpdates(
 	];
 }
 
-export function createConfigUpdatesPanel(pi: ExtensionAPI): SidebarPanel {
-	let snapshot: ConfigStatusSnapshotV1 | undefined;
+export function createExtensionUpdatesPanel(pi: ExtensionAPI): SidebarPanel {
+	let snapshot: ExtensionUpdatesSnapshotV1 | undefined;
 	let connected = false;
 	let disposed = false;
 	let generation = 0;
@@ -119,8 +119,8 @@ export function createConfigUpdatesPanel(pi: ExtensionAPI): SidebarPanel {
 	const requestStatus = () => {
 		if (!connected || disposed) return;
 		try {
-			pi.events.emit(CONFIG_STATUS_REQUEST_EVENT, {
-				version: CONFIG_STATUS_PROTOCOL_VERSION,
+			pi.events.emit(EXTENSION_UPDATES_REQUEST_EVENT, {
+				version: EXTENSION_UPDATES_PROTOCOL_VERSION,
 				source: { extension: "@neumie/pi-sidebar" },
 			});
 		} catch {
@@ -128,9 +128,9 @@ export function createConfigUpdatesPanel(pi: ExtensionAPI): SidebarPanel {
 		}
 	};
 	const unsubscribes = [
-		pi.events.on(CONFIG_STATUS_READY_EVENT, requestStatus),
-		pi.events.on(CONFIG_STATUS_SNAPSHOT_EVENT, (payload) => {
-			const parsed = parseConfigStatusSnapshot(payload);
+		pi.events.on(EXTENSION_UPDATES_READY_EVENT, requestStatus),
+		pi.events.on(EXTENSION_UPDATES_SNAPSHOT_EVENT, (payload) => {
+			const parsed = parseExtensionUpdatesSnapshot(payload);
 			if (!parsed) return;
 			snapshot = parsed;
 			if (connected) invalidate();
@@ -146,8 +146,8 @@ export function createConfigUpdatesPanel(pi: ExtensionAPI): SidebarPanel {
 	pi.on("session_shutdown", dispose);
 
 	return {
-		id: "neumie.config-updates",
-		title: "Config updates",
+		id: "neumie.extension-updates",
+		title: "Extension updates",
 		showTitleInRight: false,
 		showTitleInNarrow: false,
 		placement: "hint",
@@ -169,7 +169,7 @@ export function createConfigUpdatesPanel(pi: ExtensionAPI): SidebarPanel {
 			return disconnect;
 		},
 		render(context) {
-			return renderConfigUpdates(snapshot, context);
+			return renderExtensionUpdates(snapshot, context);
 		},
 	};
 }
