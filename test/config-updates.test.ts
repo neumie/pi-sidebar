@@ -142,25 +142,21 @@ describe("config update snapshots", () => {
 			} as Theme,
 		};
 		const lines = renderConfigUpdates(snapshot, context);
-		assert.equal(lines.length, 1);
-		assert.equal(lines[0]?.length, context.width);
-		assert.ok(lines[0]?.endsWith("4 · /config-status"));
+		assert.deepEqual(lines, ["/extension-updates (4)"]);
 		assert.doesNotMatch(lines[0] ?? "", /pi|narumitw|subagents|web-access/);
-		assert.equal(colors[0], "warning");
+		assert.deepEqual(colors, ["dim", "warning"]);
 
 		const narrow = renderConfigUpdates(snapshot, {
 			...context,
 			width: 40,
 			surface: "narrow",
 		});
-		assert.equal(narrow[0]?.length, 40);
-		assert.ok(narrow[0]?.endsWith("4 · /config-status"));
+		assert.deepEqual(narrow, ["/extension-updates (4)"]);
 
 		colors.length = 0;
 		const overflow = renderConfigUpdates({ ...snapshot, updatesOmitted: 2 }, context);
-		assert.equal(overflow[0]?.length, context.width);
-		assert.ok(overflow[0]?.endsWith("6 · /config-status"));
-		assert.equal(colors[0], "error");
+		assert.deepEqual(overflow, ["/extension-updates (6)"]);
+		assert.deepEqual(colors, ["dim", "error"]);
 		assert.deepEqual(
 			renderConfigUpdates({ ...snapshot, updates: [], updatesOmitted: 0 }, renderContext()),
 			[],
@@ -185,7 +181,7 @@ describe("config updates panel", () => {
 		assert.equal(typeof disconnect, "function");
 		assert.equal(panel.showTitleInRight, false);
 		assert.equal(panel.showTitleInNarrow, false);
-		assert.equal(panel.placement, "bottom");
+		assert.equal(panel.placement, "hint");
 		await tick();
 		const requests = () =>
 			events.emitted.filter((entry) => entry.event === CONFIG_STATUS_REQUEST_EVENT);
@@ -199,9 +195,7 @@ describe("config updates panel", () => {
 		assert.equal(requests().length, 2);
 		events.emit(CONFIG_STATUS_SNAPSHOT_EVENT, snapshot);
 		assert.equal(invalidations, 1);
-		const rendered = panel.render(renderContext())[0];
-		assert.equal(rendered?.length, renderContext().width);
-		assert.ok(rendered?.endsWith("4 · /config-status"));
+		assert.equal(panel.render(renderContext())[0], "/extension-updates (4)");
 
 		events.emit(CONFIG_STATUS_SNAPSHOT_EVENT, {
 			...snapshot,

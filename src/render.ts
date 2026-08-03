@@ -184,6 +184,23 @@ function renderPanel(
 	return { title, body };
 }
 
+function renderPanelHint(
+	panels: readonly SidebarPanel[],
+	width: number,
+	surface: "right" | "narrow",
+	theme: Theme,
+	now: number,
+): string {
+	if (width <= 0) return "";
+	for (const panel of panels) {
+		if (panel.placement !== "hint") continue;
+		const rendered = renderPanel(panel, width, width, 1, surface, theme, now);
+		const hint = rendered.body[0];
+		if (hint) return hint;
+	}
+	return "";
+}
+
 export class SidebarComponent implements Component {
 	private presentation: SidebarPresentation | undefined;
 
@@ -227,6 +244,11 @@ export class SidebarComponent implements Component {
 		const panelLimit = height - (hasHint ? 1 : 0);
 		const now = Date.now();
 		const panels = [...this.options.getPanels()].sort(panelOrder);
+		const hostHint = theme.fg("dim", "/sidebar");
+		const panelHintWidth = Math.max(0, contentWidth - visibleWidth(hostHint) - 1);
+		const panelHint = hasHint
+			? renderPanelHint(panels, panelHintWidth, "right", theme, now)
+			: "";
 		const bottomLines: CellLine[] = [];
 		for (const panel of [...panels].reverse()) {
 			if (panel.placement !== "bottom") continue;
@@ -265,7 +287,7 @@ export class SidebarComponent implements Component {
 
 		let renderedPanels = 0;
 		for (const panel of panels) {
-			if (panel.placement === "bottom") continue;
+			if (panel.placement === "bottom" || panel.placement === "hint") continue;
 			const separatorRows = renderedPanels > 0 ? 1 : 0;
 			const showTitle = panel.showTitleInRight !== false;
 			const titleRows = showTitle ? 1 : 0;
@@ -293,7 +315,12 @@ export class SidebarComponent implements Component {
 			renderedPanels += 1;
 		}
 
-		if (renderedPanels === 0 && bottomLines.length === 0 && lines.length < flowLimit) {
+		if (
+			renderedPanels === 0 &&
+			bottomLines.length === 0 &&
+			!hasVisibleContent(panelHint) &&
+			lines.length < flowLimit
+		) {
 			const emptyState = [
 				theme.fg("muted", theme.bold("No active work")),
 				theme.fg("dim", "Start a subagent or background job"),
@@ -312,7 +339,9 @@ export class SidebarComponent implements Component {
 			while (lines.length < panelLimit - bottomLines.length) lines.push(row());
 			for (const line of bottomLines) lines.push(row(line.content, line.indent));
 		}
-		if (hasHint && lines.length < height) lines.push(row(theme.fg("dim", "/sidebar")));
+		if (hasHint && lines.length < height) {
+			lines.push(row(withRightHint(hostHint, panelHint, contentWidth)));
+		}
 		if (lines.length > height) lines.length = height;
 		return lines;
 	}
@@ -341,6 +370,13 @@ export class NarrowSidebarComponent implements Component {
 		const lines: CellLine[] = [];
 		const now = Date.now();
 		const panels = [...this.options.getPanels()].sort(panelOrder);
+		const hostHint = theme.fg("dim", "/sidebar");
+		const panelHintWidth = Math.max(0, contentWidth - visibleWidth(hostHint) - 1);
+		const panelHint = contentRows > 0
+			? renderPanelHint(panels, panelHintWidth, "narrow", theme, now)
+			: "";
+		const hasPanelHint = hasVisibleContent(panelHint);
+		const panelContentRows = Math.max(0, contentRows - (hasPanelHint ? 1 : 0));
 		const bottomLines: CellLine[] = [];
 		for (const panel of [...panels].reverse()) {
 			if (panel.placement !== "bottom") continue;
@@ -349,7 +385,7 @@ export class NarrowSidebarComponent implements Component {
 			const separatorRows = bottomLines.length > 0 ? 1 : 0;
 			const bodyHeight = Math.min(
 				SHELF_PANEL_LINES,
-				contentRows - bottomLines.length - separatorRows - titleRows,
+				panelContentRows - bottomLines.length - separatorRows - titleRows,
 			);
 			if (bodyHeight <= 0) continue;
 			const bodyIndent = showTitle ? BODY_INDENT : 0;
@@ -366,12 +402,13 @@ export class NarrowSidebarComponent implements Component {
 		}
 		const flowRows = Math.max(
 			0,
-			contentRows - bottomLines.length - (bottomLines.length > 0 && bottomLines.length < contentRows ? 1 : 0),
+			panelContentRows - bottomLines.length -
+				(bottomLines.length > 0 && bottomLines.length < panelContentRows ? 1 : 0),
 		);
 		let renderedPanels = 0;
 
 		for (const panel of panels) {
-			if (panel.placement === "bottom") continue;
+			if (panel.placement === "bottom" || panel.placement === "hint") continue;
 			const availableRows = flowRows - lines.length;
 			const showTitle = panel.showTitleInNarrow !== false;
 			const titleRows = showTitle ? 1 : 0;
@@ -392,10 +429,10 @@ export class NarrowSidebarComponent implements Component {
 		const output: string[] = position === "bottom" ? [divider] : [];
 		const contentRow = (content: unknown = "") =>
 			`${" ".repeat(LEFT_PADDING)}${bounded(content, contentWidth, true)}${" ".repeat(RIGHT_PADDING)}`;
-		if (renderedPanels === 0 && bottomLines.length === 0) {
-			const availablePadding = Math.max(0, contentRows - 2);
+		if (renderedPanels === 0 && bottomLines.length === 0 && !hasPanelHint) {
+			const availablePadding = Math.max(0, panelContentRows - 2);
 			const stateRow = Math.floor(availablePadding / 2);
-			for (let rowIndex = 0; rowIndex < contentRows; rowIndex += 1) {
+			for (let rowIndex = 0; rowIndex < panelContentRows; rowIndex += 1) {
 				let content = "";
 				if (rowIndex === stateRow) {
 					content = centered(theme.fg("muted", theme.bold("No active work")), contentWidth);
@@ -407,15 +444,18 @@ export class NarrowSidebarComponent implements Component {
 			}
 		} else {
 			const contentLines = [...lines];
-			while (contentLines.length < contentRows - bottomLines.length)
+			while (contentLines.length < panelContentRows - bottomLines.length)
 				contentLines.push({ content: "" });
 			contentLines.push(...bottomLines);
-			for (let rowIndex = 0; rowIndex < contentRows; rowIndex += 1) {
+			for (let rowIndex = 0; rowIndex < panelContentRows; rowIndex += 1) {
 				const cell = contentLines[rowIndex];
 				const indent = Math.min(Math.max(0, cell?.indent ?? 0), contentWidth);
 				const content = `${" ".repeat(indent)}${bounded(cell?.content ?? "", contentWidth - indent, true)}`;
 				output.push(contentRow(content));
 			}
+		}
+		if (hasPanelHint) {
+			output.push(contentRow(withRightHint(hostHint, panelHint, contentWidth)));
 		}
 		if (position === "top") output.push(divider);
 		return output;

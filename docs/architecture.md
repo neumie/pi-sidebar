@@ -37,7 +37,7 @@ The dock adapter captures the active `tui.render` function and replaces it with 
 
 The sidebar itself is one `TUI.showOverlay()` component anchored at top-right with `nonCapturing: true`. TUI overlay compositing still uses the physical terminal width, so it paints into the columns withheld from the main renderer.
 
-The renderer is a flat, unlabeled activity rail: every emitted row has one host-owned dim-gray left divider and one content inset, with no reserved trailing padding. Panels with `placement: "bottom"` reserve final body row(s) above the host-owned `/sidebar` hint; ordinary panels retain ordered flow above them. Panel bodies add one more column of indentation, so a configured width `W` yields provider body width `W - 3`. This compact hierarchy distinguishes live values from section labels while returning three columns to provider content. The divider itself is sufficient separation, so the default dock gutter is zero. Whitespace separates visible sections; no top, right, bottom, or horizontal-rule chrome is emitted. The empty state names the state and directs the user to start a subagent or background job.
+The renderer is a flat, unlabeled activity rail: every emitted row has one host-owned dim-gray left divider and one content inset, with no reserved trailing padding. Panels with `placement: "bottom"` reserve final body row(s) above the host-owned `/sidebar` hint; the first visible `placement: "hint"` panel shares that command row at its right edge; ordinary panels retain ordered flow above them. Panel bodies add one more column of indentation, so a configured width `W` yields provider body width `W - 3`. This compact hierarchy distinguishes live values from section labels while returning three columns to provider content. The divider itself is sufficient separation, so the default dock gutter is zero. Whitespace separates visible sections; no top, right, bottom, or horizontal-rule chrome is emitted. The empty state names the state and directs the user to start a subagent or background job.
 
 ### Configurable narrow shelf
 
@@ -45,7 +45,7 @@ When the right rail does not fit and the terminal is at least 32 columns by 32 r
 
 The adaptive widget returns no rows while a live post-footer handle owns bottom placement or when the rail fits, and is remounted when the configured position changes. Capability and registration handles are exact-session and generation-safe. Replacement is atomic: a failed capability leaves the current live handle untouched; a successful replacement is installed before the prior handle is disposed. Session/widget teardown disposes the active handle. Neither path appends, deletes, overwrites, or inspects root/editor lines, so transient slash roots remain entirely Pi-owned.
 
-The shared narrow renderer uses six content rows and one full-width dim-gray divider: below content in `top`, above content in `bottom`. It always stacks visible panels in one column using the shelf's full usable width, reserving the final content row(s) for `placement: "bottom"` panels. Panels may opt out of their narrow title only when their body is self-identifying; the built-in activity adapters use an accent `◆` for agents and a success `▸` for background jobs. The reclaimed heading row and inset return directly to that provider. A panel may use up to five body rows; actual returned rows determine what remains for later panels, and panel detail takes precedence over an inter-panel spacer.
+The shared narrow renderer uses six content rows and one full-width dim-gray divider: below content in `top`, above content in `bottom`. It always stacks visible panels in one column using the shelf's full usable width, reserving the final content row(s) for `placement: "bottom"` panels. When a `placement: "hint"` panel is visible, one final content row combines `/sidebar` on the left with the first visible panel hint on the right. Panels may opt out of their narrow title only when their body is self-identifying; the built-in activity adapters use an accent `◆` for agents and a success `▸` for background jobs. The reclaimed heading row and inset return directly to that provider. A panel may use up to five body rows; actual returned rows determine what remains for later panels, and panel detail takes precedence over an inter-panel spacer.
 
 ### Overlay fallback
 
@@ -76,7 +76,7 @@ Terminals that fit neither the right rail nor the minimum narrow geometry hide t
 19. Keep the right overlay non-capturing and owned through its exact handle.
 20. Publish bounded, private-ID-free panel summaries through Pi's footer-status seam only while the sidebar backend is hidden; clear them on every visible backend and session teardown.
 21. Render integration health only from explicit actionable evidence; healthy, inactive, lazy, cached, malformed, and unknown states consume no panel rows.
-22. Render config freshness only as one titleless colored actionable count plus `/config-status`; current, attention-only, error, and age-held states consume no panel rows, and package details remain in the command.
+22. Render extension freshness only as `/extension-updates (N)` on the host's shared command-hint row; current, attention-only, error, and age-held states consume no panel rows, and package details remain in the command.
 
 ## Integration contracts
 
@@ -106,14 +106,14 @@ When `ping.capabilities.fleetStatus` is `{ version: 1 }`, the v1 status reply ad
 
 Each structured summary carries only an optional bounded display label and `startedAt`; it intentionally has no command, path, or private job id. The adapter validates aggregate/list consistency, fills the body-row budget with jobs, and reserves an overflow row only when jobs are actually hidden. That overflow row right-aligns the `/jobs` manager hint when the usable body width can hold both summary and hint; otherwise the summary wins. Older aggregate-only payloads remain valid. The event intentionally omits full job output and paths, and the sidebar does not bypass that privacy boundary.
 
-### Config status
+### Extension updates protocol
 
 - discovery: `@neumie/config-status:v1:ready`
 - request: `@neumie/config-status:v1:request`
 - snapshot: `@neumie/config-status:v1:snapshot`
 - display fields: checked timestamp, at most 64 actionable update names/kinds/versions/summaries, and an omitted count capped at 10,000
 
-The adapter requests once per connection; successful `/config-status` runs publish through the same snapshot event. It validates the complete bounded payload, rejects controls and malformed versions/counts, and renders immediately eligible `update` entries only as one right-aligned, titleless row with a `/config-status` hint. Names, versions, and summaries never enter the sidebar; snapshot overflow raises the count color from warning to error. It does not poll, inspect `pi-config` internals, or display current, dirty/attention-only, failed-verification, or age-held entries. A missing provider leaves the panel absent.
+The adapter requests once per connection; successful `/extension-updates` runs publish through the same snapshot event. It validates the complete bounded payload, rejects controls and malformed versions/counts, and renders immediately eligible `update` entries only as `/extension-updates (N)` in a shared host hint row. Names, versions, and summaries never enter the sidebar; snapshot overflow raises the count color from warning to error. It does not poll, inspect `pi-config` internals, or display current, dirty/attention-only, failed-verification, or age-held entries. A missing provider leaves the panel absent.
 
 ### LSP health through pi-footer
 

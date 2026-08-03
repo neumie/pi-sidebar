@@ -103,18 +103,18 @@ describe("SidebarComponent", () => {
 		assert.equal(contexts[0]?.context.now, contexts[1]?.context.now);
 	});
 
-	it("pins self-identifying bottom right-rail panels above the host hint", () => {
+	it("shares the host hint row with a right-aligned panel hint", () => {
 		const lines = component([{
 			id: "example.config",
-			title: "Config updates",
+			title: "Extension updates",
 			showTitleInRight: false,
-			placement: "bottom",
-			render: () => ["4 · /config-status"],
+			placement: "hint",
+			render: () => ["/extension-updates (4)"],
 		}], 5).render(34);
 		assertMinimalRail(lines, 34);
-		assert.match(lines.at(-2) ?? "", /^│ 4 · \/config-status/);
-		assert.match(lines.at(-1) ?? "", /^│ \/sidebar/);
-		assert.doesNotMatch(lines.join("\n"), /Config updates/);
+		assert.equal(lines.at(-2), `│${" ".repeat(33)}`);
+		assert.match(lines.at(-1) ?? "", /^│ \/sidebar\s+\/extension-updates \(4\)$/);
+		assert.doesNotMatch(lines.join("\n"), /Extension updates/);
 	});
 
 	it("centers the empty state within the dock", () => {
@@ -334,18 +334,18 @@ describe("NarrowSidebarComponent", () => {
 		assert.doesNotMatch(lines.join("\n"), /Subagents/);
 	});
 
-	it("pins bottom panels at the end of either narrow shelf position", () => {
+	it("shares the final narrow row between the host and a panel hint", () => {
 		const panels: SidebarPanel[] = [
 			{ id: "example.activity", title: "Activity", showTitleInNarrow: false, order: 10, render: () => ["◆ reviewer"] },
-			{ id: "example.config", title: "Config updates", showTitleInNarrow: false, placement: "bottom", order: 250, render: () => ["4 · /config-status"] },
+			{ id: "example.config", title: "Extension updates", showTitleInNarrow: false, placement: "hint", order: 250, render: () => ["/extension-updates (4)"] },
 		];
 		for (const position of ["top", "bottom"] as const) {
 			const lines = narrowComponent(panels, { position, rows: 7 }).render(60);
 			assertNarrowShelf(lines, 60, position);
 			const indicator = position === "top" ? lines.at(-2) : lines.at(-1);
-			assert.match(indicator ?? "", /^ 4 · \/config-status/);
+			assert.match(indicator ?? "", /^ \/sidebar\s+\/extension-updates \(4\)$/);
 			assert.match(lines.join("\n"), /◆ reviewer/);
-			assert.doesNotMatch(lines.join("\n"), /Config updates/);
+			assert.doesNotMatch(lines.join("\n"), /Extension updates/);
 		}
 	});
 

@@ -63,6 +63,7 @@ describe("registerSidebarPanel", () => {
 
 	it("rejects malformed public definitions", () => {
 		const { pi } = fakePi();
+		assert.doesNotThrow(() => registerSidebarPanel(pi, { ...panel, placement: "hint" }));
 		assert.throws(() => registerSidebarPanel(pi, { ...panel, id: "spaces are invalid" }), /identifier/);
 		assert.throws(() => registerSidebarPanel(pi, { ...panel, title: "bad\ntitle" }), /one line/);
 		assert.throws(

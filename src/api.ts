@@ -40,8 +40,8 @@ export interface SidebarPanel {
 	readonly showTitleInRight?: boolean;
 	/** Set false when the narrow rendering is self-identifying without a heading. */
 	readonly showTitleInNarrow?: boolean;
-	/** Keep this panel at the final body row(s) on every visible sidebar surface. */
-	readonly placement?: "flow" | "bottom";
+	/** Keep body rows in normal flow, at the bottom, or share the host command-hint row. */
+	readonly placement?: "flow" | "bottom" | "hint";
 	readonly order?: number;
 	connect?(
 		context: SidebarPanelConnection,
@@ -68,8 +68,13 @@ export function assertSidebarPanel(panel: SidebarPanel): void {
 	if (panel.showTitleInNarrow !== undefined && typeof panel.showTitleInNarrow !== "boolean") {
 		throw new Error("Sidebar panel showTitleInNarrow must be boolean when provided.");
 	}
-	if (panel.placement !== undefined && panel.placement !== "flow" && panel.placement !== "bottom") {
-		throw new Error("Sidebar panel placement must be flow or bottom when provided.");
+	if (
+		panel.placement !== undefined &&
+		panel.placement !== "flow" &&
+		panel.placement !== "bottom" &&
+		panel.placement !== "hint"
+	) {
+		throw new Error("Sidebar panel placement must be flow, bottom, or hint when provided.");
 	}
 	if (panel.order !== undefined && !Number.isFinite(panel.order)) {
 		throw new Error("Sidebar panel order must be finite when provided.");

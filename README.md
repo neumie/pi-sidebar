@@ -37,7 +37,7 @@ Pi session footer                 ◆ 2 agents · ▸ 3 jobs
 - Zero-config [`pi-subagents-goal`](https://github.com/neumie/pi-subagents-goal) panel through its versioned, session-scoped, display-safe status API.
 - Zero-config [`pi-subagents`](https://github.com/neumie/pi-subagents) panel through its versioned in-process RPC and lifecycle events.
 - Zero-config [`pi-background-jobs`](https://github.com/neumie/pi-background-jobs) panel that fills available rows from a bounded, private-ID-free activity snapshot.
-- Actionable-only config update count through `pi-config`'s bounded, versioned `/config-status` snapshot protocol; details stay in the command and the indicator stays at the rail or shelf end.
+- Actionable-only extension update count through `pi-config`'s bounded, versioned config-status snapshot protocol; details stay in `/extension-updates`, whose compact hint shares the host's final command row.
 - Degraded-only Integrations panel for actionable LSP failures and observed MCP authentication/connectivity failures; healthy, inactive, cached, and lazily disconnected integrations stay hidden.
 - One layout owner for multiple independently installed panel providers.
 - Non-capturing UI: normal keyboard input stays with Pi's editor.
@@ -111,9 +111,9 @@ Foreground `subagent` tool calls are shown immediately from Pi's public tool lif
 
 The adapter consumes the stable `background-jobs:changed` payload. With `pi-background-jobs` 0.3.0 or newer, it renders the newest bounded running-job summaries into every available panel row and emits `+N more` only for real overflow; that row right-aligns `/jobs` when it fits so the complete manager is one command away. Recent terminal jobs use a spare row or share the overflow summary. Older producers degrade to the aggregate primary/count view. Commands, output, paths, and private job ids are never rendered; `/jobs` remains the detailed manager.
 
-### Config updates
+### Extension updates
 
-The adapter requests `@neumie/config-status:v1:snapshot` once when the sidebar connects and refreshes whenever `/config-status` runs. It counts only updates that are eligible now—such as an npm version that satisfies `min-release-age` or a local fork behind its parent—and hides current, dirty/attention-only, error, and age-held entries. The sidebar renders one titleless line—`4 · /config-status`—right-aligned at the bottom of the right rail or the end of a narrow shelf; individual package names, versions, and summaries remain exclusively in the command. Ordinary availability uses the warning color, while snapshot overflow uses the error color. Missing or incompatible providers simply hide the panel.
+The adapter requests `@neumie/config-status:v1:snapshot` once when the sidebar connects and refreshes whenever `/extension-updates` runs. It counts only updates that are eligible now—such as an npm version that satisfies `min-release-age` or a local fork behind its parent—and hides current, dirty/attention-only, error, and age-held entries. The sidebar renders `/extension-updates (4)` at the right edge of the same final row that keeps `/sidebar` on the left; individual package names, versions, and summaries remain exclusively in the command. Ordinary availability uses the warning color, while snapshot overflow uses the error color. Missing or incompatible providers simply hide the panel.
 
 ### Degraded integrations
 
@@ -166,7 +166,7 @@ Panel rules:
 - `id` is globally unique and stable.
 - `title` is short and sentence case; the host preserves provider wording rather than rewriting it.
 - Set `showTitleInRight: false` or `showTitleInNarrow: false` only when the corresponding panel body has a stable visual identity of its own.
-- Set `placement: "bottom"` only for compact, self-contained status that belongs at the final body row(s); other panels retain normal ordered flow.
+- Set `placement: "bottom"` only for compact, self-contained status that belongs at the final body row(s). Use `placement: "hint"` for one compact line that may share the host's final `/sidebar` command row; the first visible hint in panel order wins.
 - `hiddenStatus()` is optional, synchronous, bounded by the host, and must expose only aggregate, private-ID-free text. It appears in Pi's right-side footer status area only while the sidebar surface is hidden.
 - `render()` is synchronous and returns bounded terminal lines.
 - `render({ width, height, surface })` receives only the usable panel-body area after host chrome; `surface` is `right` or `narrow`. A title-free narrow panel receives the reclaimed title row and inset.

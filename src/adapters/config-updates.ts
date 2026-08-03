@@ -100,11 +100,12 @@ export function renderConfigUpdates(
 	const omitted = snapshot?.updatesOmitted ?? 0;
 	const totalUpdates = updates.length + omitted;
 	const count = omitted === 10_000 ? `${totalUpdates}+` : String(totalUpdates);
-	const hint = " · /config-status";
-	const leftPadding = " ".repeat(Math.max(0, context.width - count.length - hint.length));
+	const command = "/extension-updates";
+	const countLabel = `(${count})`;
+	if (context.width < command.length + 1 + countLabel.length) return [];
 	const urgency = omitted > 0 ? "error" : "warning";
 	return [
-		`${leftPadding}${context.theme.fg(urgency, count)}${context.theme.fg("dim", hint)}`,
+		`${context.theme.fg("dim", command)} ${context.theme.fg(urgency, countLabel)}`,
 	];
 }
 
@@ -149,7 +150,7 @@ export function createConfigUpdatesPanel(pi: ExtensionAPI): SidebarPanel {
 		title: "Config updates",
 		showTitleInRight: false,
 		showTitleInNarrow: false,
-		placement: "bottom",
+		placement: "hint",
 		order: 250,
 		connect(context) {
 			if (disposed) return () => undefined;
