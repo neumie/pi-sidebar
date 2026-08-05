@@ -103,6 +103,31 @@ describe("SidebarComponent", () => {
 		assert.equal(contexts[0]?.context.now, contexts[1]?.context.now);
 	});
 
+	it("keeps a later flow panel when the rail can fit a full first panel", () => {
+		const panels: SidebarPanel[] = [
+			{
+				id: "example.subagents",
+				title: "Subagents",
+				order: 100,
+				render: ({ height }) => Array.from({ length: height }, (_, index) => `agent ${index + 1}`),
+			},
+			{
+				id: "example.jobs",
+				title: "Background jobs",
+				order: 200,
+				render: () => ["job"],
+			},
+		];
+		const lines = component(panels, 30).render(34);
+
+		assert.equal(lines.length, 30);
+		assert.match(lines[1]!, /^│ Subagents/);
+		assert.match(lines[25]!, /^│  agent 24/);
+		assert.match(lines[27]!, /^│ Background jobs/);
+		assert.match(lines[28]!, /^│  job/);
+		assert.match(lines[29]!, /^│ \/sidebar/);
+	});
+
 	it("shares the host hint row with a right-aligned panel hint", () => {
 		const lines = component([{
 			id: "example.config",

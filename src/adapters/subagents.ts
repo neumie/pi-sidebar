@@ -15,7 +15,6 @@ const REFRESH_EVENTS = [
 const RPC_TIMEOUT_MS = 1_500;
 const ACTIVE_POLL_MS = 1_000;
 const IDLE_POLL_MS = 5_000;
-const MAX_STATUS_LINES = 10;
 
 interface ForegroundLaunch {
 	id: string;
@@ -510,7 +509,7 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 			return count > 0 ? `◆ ${count} agent${count === 1 ? "" : "s"}` : undefined;
 		},
 		render({ width, theme, now, height, surface }) {
-			const maxRows = Math.max(0, Math.min(MAX_STATUS_LINES, height));
+			const maxRows = Math.max(0, height);
 			const divider = theme.fg("dim", " · ");
 			const projection = projectEntries(fleetSnapshot, foreground);
 			const lines: string[] = [];

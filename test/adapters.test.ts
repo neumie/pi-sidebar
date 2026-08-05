@@ -919,6 +919,35 @@ describe("subagent status adapter", () => {
 		dispose();
 	});
 
+	it("uses available rail height before reporting fleet overflow", async () => {
+		const { pi, events } = fakePi();
+		const entries = Array.from({ length: 8 }, (_, index) => ({
+			key: `fleet-${index + 1}`,
+			agent: `worker-${index + 1}`,
+			model: "openai/gpt-5.6-luna:medium",
+			effort: "medium",
+			startedAt: index * 1_000,
+			tokens: { input: index + 1, output: index + 2, total: index * 2 + 3 },
+			goal: `Complete item ${index + 1}`,
+		}));
+		serveFleet(events, () => ({
+			version: 1,
+			totalActive: entries.length,
+			omitted: 0,
+			entries,
+		}));
+		const panel = createSubagentsPanel(pi);
+		const dispose = connect(panel);
+		await tick();
+		await tick();
+
+		const rail = panel.render({ width: 36, height: 24, surface: "right", theme, now: 120_000 });
+		assert.equal(rail.filter((line) => line.startsWith("◆ worker-")).length, 8);
+		assert.equal(rail.length, 24);
+		assert.equal(rail.some((line) => /more/.test(line)), false);
+		dispose();
+	});
+
 	it("reconciles duplicate placeholders one-to-one and clears remote state on reconnect", async () => {
 		const { pi, events, emitLifecycle } = fakePi();
 		let reply = true;
