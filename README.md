@@ -68,7 +68,8 @@ Pi packages execute with your full system permissions. Review extension source b
 /sidebar                         toggle visibility
 /sidebar on | off                explicitly show or hide
 /sidebar status                  report mode, backend, width, and panel count
-/sidebar width 42                set runtime width (24–80 columns)
+/sidebar width auto              restore responsive 42–58 column sizing
+/sidebar width 42                set a fixed runtime width (24–80 columns)
 /sidebar mode auto               choose a safe responsive layout
 /sidebar mode dock               reserve the right rail when it fits
 /sidebar mode overlay            use Pi's supported wide overlay behavior
@@ -82,7 +83,7 @@ Runtime command changes are session-scoped. Environment defaults:
 | --- | ---: | --- |
 | `PI_SIDEBAR_ENABLED` | `1` | Set to `0` to start hidden. |
 | `PI_SIDEBAR_MODE` | `auto` | `auto`, `dock`, or `overlay`. |
-| `PI_SIDEBAR_WIDTH` | `42` | Sidebar columns. |
+| `PI_SIDEBAR_WIDTH` | responsive | When unset, use 42 columns below 160 terminal columns, then 46/50/54/58 at 160/192/224/256. Setting it chooses a fixed width. |
 | `PI_SIDEBAR_GUTTER` | `0` | Optional blank columns between Pi and the sidebar. |
 | `PI_SIDEBAR_MIN_MAIN_WIDTH` | `64` | Minimum columns preserved beside the right rail. |
 | `PI_SIDEBAR_NARROW_POSITION` | `bottom` | `bottom` after a compatible footer, or `top` above the editor. |
@@ -92,9 +93,9 @@ Runtime command changes are session-scoped. Environment defaults:
 
 The former `PI_SIDEBAR_TOP_*` geometry variables remain accepted as fallback aliases when their corresponding remaining `PI_SIDEBAR_NARROW_*` variable is unset.
 
-In `auto` and `dock` modes, the right rail wins whenever the terminal can fit the configured main width, gutter, and sidebar width. Otherwise a terminal at least 32 columns wide and 32 rows tall gets a seven-row, single-column narrow shelf. The built-in activity panels omit redundant narrow headings and identify themselves with distinct markers: `◆` agents and `▸` background jobs. `narrow bottom` registers a bounded post-footer renderer when `pi-footer` 0.4.0 or newer is present, producing editor → footer → shelf; with Pi's built-in footer or an older custom footer it safely falls back to the documented `belowEditor` widget. `narrow top` always uses the documented `aboveEditor` widget. Smaller terminals hide the activity surface and expose only private-ID-free activity counts through Pi's public footer-status seam.
+In `auto` and `dock` modes, the right rail wins whenever the terminal can fit the configured main width, gutter, and resolved sidebar width. With no explicit width, the rail grows in bounded four-column steps: 42 columns normally, then 46/50/54/58 at terminal widths 160/192/224/256 and above. `/sidebar width N` or `PI_SIDEBAR_WIDTH=N` keeps the old exact fixed-width behavior; `/sidebar width auto` restores the staircase. Otherwise a terminal at least 32 columns wide and 32 rows tall gets a seven-row, single-column narrow shelf. The built-in activity panels omit redundant narrow headings and identify themselves with distinct markers: `◆` agents and `▸` background jobs. `narrow bottom` registers a bounded post-footer renderer when `pi-footer` 0.4.0 or newer is present, producing editor → footer → shelf; with Pi's built-in footer or an older custom footer it safely falls back to the documented `belowEditor` widget. `narrow top` always uses the documented `aboveEditor` widget. Smaller terminals hide the activity surface and expose only private-ID-free activity counts through Pi's public footer-status seam.
 
-The configured right-rail width includes the divider and compact internal hierarchy. Right-rail providers receive `configured width - 3` body columns: one divider, one heading inset, and one additional body indent, with no reserved trailing column. Narrow-shelf providers receive the shelf's full usable width. Provider height always excludes host-owned headings and section spacing.
+The resolved right-rail width includes the divider and compact internal hierarchy. Right-rail providers receive `resolved width - 3` body columns: one divider, one heading inset, and one additional body indent, with no reserved trailing column. Narrow-shelf providers receive the shelf's full usable width. Provider height always excludes host-owned headings and section spacing.
 
 ## Built-in integrations
 

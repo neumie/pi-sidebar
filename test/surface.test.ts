@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import * as PiTui from "@earendil-works/pi-tui";
 import type { Component, OverlayOptions, Terminal, TUI } from "@earendil-works/pi-tui";
+import { responsiveSidebarWidth } from "../src/sidebar-width.ts";
 import {
 	createSidebarSurface,
 	type SidebarSurfaceComponent,
@@ -126,6 +127,31 @@ describe("createSidebarSurface", () => {
 		surface.dispose();
 		assert.deepEqual(tui.render(120), ["main:120"]);
 		assert.equal(tui.hideCount, 1);
+	});
+
+	it("keeps responsive dock reservation and overlay width synchronized", () => {
+		const tui = new FakeTui();
+		const surface = createSidebarSurface(
+			tui as unknown as TUI,
+			{ right: component() },
+			{ ...options, gutter: 0, resolveWidth: responsiveSidebarWidth },
+		);
+		const overlay = tui.overlays[0]?.options;
+		assert.ok(overlay);
+
+		for (const [terminalWidth, sidebarWidth] of [
+			[159, 42],
+			[160, 46],
+			[192, 50],
+			[224, 54],
+			[256, 58],
+		] as const) {
+			tui.terminal.columns = terminalWidth;
+			assert.equal(visible(tui, terminalWidth, 40), true);
+			assert.equal(overlay.width, sidebarWidth);
+			assert.deepEqual(tui.render(terminalWidth), [`main:${terminalWidth - sidebarWidth}`]);
+		}
+		surface.dispose();
 	});
 
 	it("never alters oversized ordinary or transient slash roots in narrow mode", () => {

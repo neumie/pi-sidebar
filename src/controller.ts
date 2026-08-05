@@ -28,6 +28,11 @@ import {
 	type NarrowSidebarPosition,
 } from "./render.ts";
 import {
+	DEFAULT_SIDEBAR_WIDTH,
+	MAX_RESPONSIVE_SIDEBAR_WIDTH,
+	responsiveSidebarWidth,
+} from "./sidebar-width.ts";
+import {
 	createSidebarSurface,
 	type SidebarLayoutMode,
 	type SidebarSurface,
@@ -67,6 +72,7 @@ interface SidebarSettings {
 	enabled: boolean;
 	mode: SidebarLayoutMode;
 	width: number;
+	responsiveWidth: boolean;
 	gutter: number;
 	minMainWidth: number;
 	narrowPosition: NarrowSidebarPosition;
@@ -115,7 +121,8 @@ function initialSettings(): SidebarSettings {
 	return {
 		enabled: process.env.PI_SIDEBAR_ENABLED !== "0",
 		mode,
-		width: integerEnv("PI_SIDEBAR_WIDTH", 42, 24, 80),
+		width: integerEnv("PI_SIDEBAR_WIDTH", DEFAULT_SIDEBAR_WIDTH, 24, 80),
+		responsiveWidth: process.env.PI_SIDEBAR_WIDTH === undefined,
 		gutter: integerEnv("PI_SIDEBAR_GUTTER", 0, 0, 4),
 		minMainWidth: integerEnv("PI_SIDEBAR_MIN_MAIN_WIDTH", 64, 40, 160),
 		narrowPosition,
@@ -137,6 +144,12 @@ function initialSettings(): SidebarSettings {
 	};
 }
 
+function sidebarWidthAt(settings: SidebarSettings, terminalWidth: number): number {
+	return settings.responsiveWidth
+		? responsiveSidebarWidth(terminalWidth)
+		: settings.width;
+}
+
 class AdaptiveNarrowSidebarComponent implements Component {
 	constructor(
 		private readonly narrow: NarrowSidebarComponent,
@@ -150,7 +163,8 @@ class AdaptiveNarrowSidebarComponent implements Component {
 	private renderNarrow(width: number): string[] {
 		const wide =
 			this.tui.terminal.columns >=
-			this.settings.minMainWidth + this.settings.gutter + this.settings.width;
+			this.settings.minMainWidth + this.settings.gutter +
+				sidebarWidthAt(this.settings, this.tui.terminal.columns);
 		if (
 			this.settings.mode === "overlay" ||
 			wide ||
@@ -239,15 +253,21 @@ export class SidebarController {
 					ctx.ui.notify(this.statusLine(), "info");
 					return;
 				} else if (action === "width" && parts.length === 2) {
-					const width = /^\d+$/.test(value ?? "") ? Number(value) : Number.NaN;
-					if (!Number.isInteger(width) || width < 24 || width > 80) {
-						ctx.ui.notify(
-							"Sidebar width must be an integer from 24 to 80.",
-							"warning",
-						);
-						return;
+					if (value === "auto") {
+						this.settings.width = DEFAULT_SIDEBAR_WIDTH;
+						this.settings.responsiveWidth = true;
+					} else {
+						const width = /^\d+$/.test(value ?? "") ? Number(value) : Number.NaN;
+						if (!Number.isInteger(width) || width < 24 || width > 80) {
+							ctx.ui.notify(
+								"Sidebar width must be auto or an integer from 24 to 80.",
+								"warning",
+							);
+							return;
+						}
+						this.settings.width = width;
+						this.settings.responsiveWidth = false;
 					}
-					this.settings.width = width;
 				} else if (action === "mode" && parts.length === 2) {
 					if (value !== "auto" && value !== "dock" && value !== "overlay") {
 						ctx.ui.notify(
@@ -268,7 +288,7 @@ export class SidebarController {
 					this.settings.narrowPosition = value;
 				} else {
 					ctx.ui.notify(
-						"Usage: /sidebar [on|off|toggle|status|width 24-80|mode auto|dock|overlay|narrow top|bottom]",
+						"Usage: /sidebar [on|off|toggle|status|width auto|24-80|mode auto|dock|overlay|narrow top|bottom]",
 						"warning",
 					);
 					return;
@@ -283,7 +303,10 @@ export class SidebarController {
 		const backend =
 			this.session?.surface?.backend() ??
 			(this.settings.enabled ? "not mounted" : "hidden");
-		return `Sidebar ${this.settings.enabled ? "on" : "off"} · mode ${this.settings.mode} · backend ${backend} · width ${this.settings.width} · narrow ${this.settings.narrowPosition}/${this.settings.narrowRows} rows · ${this.registrations.size} panels`;
+		const width = this.settings.responsiveWidth
+			? `auto ${DEFAULT_SIDEBAR_WIDTH}–${MAX_RESPONSIVE_SIDEBAR_WIDTH}`
+			: String(this.settings.width);
+		return `Sidebar ${this.settings.enabled ? "on" : "off"} · mode ${this.settings.mode} · backend ${backend} · width ${width} · narrow ${this.settings.narrowPosition}/${this.settings.narrowRows} rows · ${this.registrations.size} panels`;
 	}
 
 	private startSession(ctx: ExtensionContext): void {
@@ -352,6 +375,9 @@ export class SidebarController {
 						{
 							mode: this.settings.mode,
 							width: this.settings.width,
+							resolveWidth: this.settings.responsiveWidth
+								? responsiveSidebarWidth
+								: undefined,
 							gutter: this.settings.gutter,
 							minMainWidth: this.settings.minMainWidth,
 							narrowPosition: this.settings.narrowPosition,

@@ -24,6 +24,8 @@ export interface SidebarSurfaceComponents {
 export interface SidebarSurfaceOptions {
 	mode: SidebarLayoutMode;
 	width: number;
+	/** Optional responsive width policy; invalid results fall back to width. */
+	resolveWidth?(terminalWidth: number): number;
 	gutter: number;
 	minMainWidth: number;
 	narrowPosition: NarrowSidebarPosition;
@@ -75,13 +77,24 @@ export function createSidebarSurface(
 			/* diagnostics never render-fail */
 		}
 	};
+	const sidebarWidthAt = (terminalWidth: number): number => {
+		const fallback = Math.max(1, normalizedSize(options.width));
+		if (!options.resolveWidth) return fallback;
+		try {
+			const resolved = normalizedSize(options.resolveWidth(normalizedSize(terminalWidth)));
+			return resolved > 0 ? resolved : fallback;
+		} catch {
+			return fallback;
+		}
+	};
 	const layoutAt = (
 		terminalWidth: number,
 		terminalHeight: number,
 	): SidebarSurfaceBackend => {
 		const width = normalizedSize(terminalWidth);
 		const height = normalizedSize(terminalHeight);
-		const wide = width >= options.minMainWidth + options.gutter + options.width;
+		const sidebarWidth = sidebarWidthAt(width);
+		const wide = width >= options.minMainWidth + options.gutter + sidebarWidth;
 		let backend: SidebarSurfaceBackend = "hidden";
 		if (!disposed) {
 			if (wide) backend = reservationActive ? "dock" : "overlay";
@@ -112,7 +125,7 @@ export function createSidebarSurface(
 			try {
 				return previousRender.call(
 					this,
-					Math.max(1, terminalWidth - options.width - options.gutter),
+					Math.max(1, terminalWidth - sidebarWidthAt(terminalWidth) - options.gutter),
 				);
 			} catch (error) {
 				reservationActive = false;
@@ -137,11 +150,12 @@ export function createSidebarSurface(
 
 	const rightOverlayOptions: OverlayOptions = {
 		anchor: "top-right",
-		width: options.width,
+		width: sidebarWidthAt(tui.terminal.columns),
 		maxHeight: "100%",
 		margin: 0,
 		nonCapturing: true,
 		visible: (width, height) => {
+			rightOverlayOptions.width = sidebarWidthAt(width);
 			const layout = layoutAt(width, height);
 			syncRightPresentation(layout);
 			return layout === "dock" || layout === "overlay";

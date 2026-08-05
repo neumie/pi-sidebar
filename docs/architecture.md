@@ -33,7 +33,7 @@ A private `Symbol.for` slot elects one host instance during reload. It does not 
 
 ### Dock
 
-The dock adapter captures the active `tui.render` function and replaces it with a wrapper that passes `terminalWidth - sidebarWidth - gutter` to the captured renderer. Pi therefore wraps its normal transcript, editor, widgets, and custom footer at the reduced width.
+The dock adapter captures the active `tui.render` function and replaces it with a wrapper that passes `terminalWidth - sidebarWidth - gutter` to the captured renderer. Pi therefore wraps its normal transcript, editor, widgets, and custom footer at the reduced width. The default width policy resolves to 42 columns, then 46/50/54/58 at terminal widths 160/192/224/256; an explicit width remains fixed. The same resolver drives both the withheld root width and the overlay options on every render, so resize transitions cannot create overlap or a gap.
 
 The sidebar itself is one `TUI.showOverlay()` component anchored at top-right with `nonCapturing: true`. TUI overlay compositing still uses the physical terminal width, so it paints into the columns withheld from the main renderer.
 
@@ -68,7 +68,7 @@ Terminals that fit neither the right rail nor the minimum narrow geometry hide t
 11. Let missing optional integrations produce no panel rather than warnings.
 12. Keep data adapters on documented event/RPC contracts; do not deep-import peer internals.
 13. Emit one host-owned structural edge: left for the right rail, below a top shelf, or above a bottom shelf; never surround a surface with a frame.
-14. Keep every emitted row exactly the configured visible width and never exceed the current terminal height.
+14. Keep every emitted row exactly the resolved visible width and never exceed the current terminal height.
 15. Give providers only their usable body width and remaining body-row budget; hidden panels consume no heading or spacing.
 16. Select `dock`, configured `top`/`bottom`, `overlay`, or `hidden` from current terminal dimensions on every render; resizing requires no remount.
 17. Narrow shelves use documented editor widgets or the versioned `pi-footer` post-footer capability and never mutate or inspect root lines.

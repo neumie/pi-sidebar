@@ -415,6 +415,54 @@ describe("SidebarController", () => {
 		assert.equal(slotActive, false);
 	});
 
+	it("uses responsive width by default and keeps explicit widths fixed", async () => {
+		const h = harness();
+		new SidebarController(h.pi).register();
+		h.start();
+		const command = h.commands.get("sidebar");
+		assert.ok(command);
+		h.tui.terminal.columns = 256;
+
+		let overlay = h.tui.overlays.at(-1)?.options;
+		assert.equal(overlay?.visible?.(256, 40), true);
+		assert.equal(overlay?.width, 58);
+		assert.deepEqual(h.tui.render(256), ["main:198"]);
+
+		await command.handler("width 50", h.ctx);
+		overlay = h.tui.overlays.at(-1)?.options;
+		assert.equal(overlay?.visible?.(256, 40), true);
+		assert.equal(overlay?.width, 50);
+		assert.deepEqual(h.tui.render(256), ["main:206"]);
+		assert.match(h.notifications.at(-1) ?? "", /width 50/);
+
+		await command.handler("width auto", h.ctx);
+		overlay = h.tui.overlays.at(-1)?.options;
+		assert.equal(overlay?.visible?.(256, 40), true);
+		assert.equal(overlay?.width, 58);
+		assert.deepEqual(h.tui.render(256), ["main:198"]);
+		assert.match(h.notifications.at(-1) ?? "", /width auto 42–58/);
+		h.shutdown();
+	});
+
+	it("treats the startup width environment variable as a fixed override", () => {
+		const previous = process.env.PI_SIDEBAR_WIDTH;
+		process.env.PI_SIDEBAR_WIDTH = "48";
+		try {
+			const h = harness();
+			new SidebarController(h.pi).register();
+			h.start();
+			h.tui.terminal.columns = 256;
+			const overlay = h.tui.overlays.at(-1)?.options;
+			assert.equal(overlay?.visible?.(256, 40), true);
+			assert.equal(overlay?.width, 48);
+			assert.deepEqual(h.tui.render(256), ["main:208"]);
+			h.shutdown();
+		} finally {
+			if (previous === undefined) delete process.env.PI_SIDEBAR_WIDTH;
+			else process.env.PI_SIDEBAR_WIDTH = previous;
+		}
+	});
+
 	it("rejects malformed width and narrow arguments", async () => {
 		const h = harness();
 		new SidebarController(h.pi).register();
