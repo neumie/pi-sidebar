@@ -4,6 +4,7 @@ import { createBackgroundJobsPanel } from "../src/adapters/background-jobs.ts";
 import { createExtensionUpdatesPanel } from "../src/adapters/extension-updates.ts";
 import { createGoalPanel } from "../src/adapters/goals.ts";
 import { createIntegrationsPanel } from "../src/adapters/integrations.ts";
+import { createPiTodoPanel } from "../src/adapters/pi-todo.ts";
 import { createSubagentsPanel } from "../src/adapters/subagents.ts";
 import { SidebarController } from "../src/controller.ts";
 
@@ -12,6 +13,7 @@ export default function sidebar(pi: ExtensionAPI): void {
 	registerSidebarPanel(pi, createGoalPanel(pi));
 	registerSidebarPanel(pi, createSubagentsPanel(pi));
 	registerSidebarPanel(pi, createIntegrationsPanel(pi));
+	registerSidebarPanel(pi, createPiTodoPanel(pi));
 	registerSidebarPanel(pi, createBackgroundJobsPanel(pi));
 	registerSidebarPanel(pi, createExtensionUpdatesPanel(pi));
 }

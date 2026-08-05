@@ -77,6 +77,7 @@ Terminals that fit neither the right rail nor the minimum narrow geometry hide t
 20. Publish bounded, private-ID-free panel summaries through Pi's footer-status seam only while the sidebar backend is hidden; clear them on every visible backend and session teardown.
 21. Render integration health only from explicit actionable evidence; healthy, inactive, lazy, cached, malformed, and unknown states consume no panel rows.
 22. Render extension freshness only as `/extension-updates (N)` on the host's shared command-hint row; current, attention-only, error, and age-held states consume no panel rows, and package details remain in the command.
+23. Keep todo integration static and event-driven: exact-session ready/request replay, provider-instance pinning, monotonic sequence rejection, bounded actionable display text, and private-ID-free hidden counts; never import queue internals or render completed work.
 
 ## Integration contracts
 
@@ -105,6 +106,16 @@ When `ping.capabilities.fleetStatus` is `{ version: 1 }`, the v1 status reply ad
 - optional structured fields from `pi-background-jobs` 0.3.0+: newest-first `running` summaries (maximum 16) and exact `runningOmitted`
 
 Each structured summary carries only an optional bounded display label and `startedAt`; it intentionally has no command, path, or private job id. The adapter validates aggregate/list consistency, fills the body-row budget with jobs, and reserves an overflow row only when jobs are actually hidden. That overflow row right-aligns the `/jobs` manager hint when the usable body width can hold both summary and hint; otherwise the summary wins. Older aggregate-only payloads remain valid. The event intentionally omits full job output and paths, and the sidebar does not bypass that privacy boundary.
+
+### pi-todo
+
+- ready: `@neumie/pi-todo:v1:ready` with exact `sessionId` and a bounded provider-instance ID;
+- request: `@neumie/pi-todo:v1:request` with exact `sessionId`;
+- snapshot: `@neumie/pi-todo:v1:snapshot` with provider ID, monotonic sequence, queued/active/total counters, at most 16 actionable `{ status, text }` rows, and an exact omitted count.
+
+The adapter requests once per connection and whenever a matching provider announces readiness, so provider and sidebar load order are symmetric without polling. A valid ready event pins the provider instance; a replacement retires the prior instance, clears visible state, and rejects late prior snapshots. The adapter also rejects foreign sessions, stale sequences, controls, oversized text/lists/identifiers, more than one active item, and every counter/list/status inconsistency. An incompatible matching ready event hides prior state and blocks snapshot self-pinning until a fresh compatible ready event arrives. Provider replacement history is bounded; exhausting that bound locks the adapter hidden until reconnect rather than allowing an older instance to return.
+
+Only active/queued markers and bounded display text render. When work exceeds the granted height, the final available row is reserved for a private-ID-free `+N more` summary and includes `/todos` only when it fits. `hiddenStatus()` exposes aggregate active/queued counts only. Todo IDs, completed history, session file paths, model messages, raw custom entries, errors, and provider internals never cross this DTO. Provider absence or version mismatch consumes no panel rows.
 
 ### Extension updates protocol
 

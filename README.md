@@ -37,6 +37,7 @@ Pi session footer                 ◆ 2 agents · ▸ 3 jobs
 - Zero-config [`pi-subagents-goal`](https://github.com/neumie/pi-subagents-goal) panel through its versioned, session-scoped, display-safe status API.
 - Zero-config [`pi-subagents`](https://github.com/neumie/pi-subagents) panel through its versioned in-process RPC and lifecycle events.
 - Zero-config [`pi-background-jobs`](https://github.com/neumie/pi-background-jobs) panel that fills available rows from a bounded, private-ID-free activity snapshot.
+- Optional first-class [`@neumie/pi-todo`](https://github.com/neumie/pi-todo) panel showing only bounded queued/active display text, with `/todos` as the management surface and aggregate counts when the sidebar is hidden.
 - Actionable-only extension update count through `pi-config`'s bounded, versioned extension-updates snapshot protocol; details stay in `/extension-updates`, whose compact hint shares the host's final command row.
 - Degraded-only Integrations panel for actionable LSP failures and observed MCP authentication/connectivity failures; healthy, inactive, cached, and lazily disconnected integrations stay hidden.
 - One layout owner for multiple independently installed panel providers.
@@ -110,6 +111,12 @@ Foreground `subagent` tool calls are shown immediately from Pi's public tool lif
 ### pi-background-jobs
 
 The adapter consumes the stable `background-jobs:changed` payload. With `pi-background-jobs` 0.3.0 or newer, it renders the newest bounded running-job summaries into every available panel row and emits `+N more` only for real overflow; that row right-aligns `/jobs` when it fits so the complete manager is one command away. Recent terminal jobs use a spare row or share the overflow summary. Older producers degrade to the aggregate primary/count view. Commands, output, paths, and private job ids are never rendered; `/jobs` remains the detailed manager.
+
+### pi-todo
+
+The adapter uses `@neumie/pi-todo:v1:ready`, `:request`, and `:snapshot` events. It requests the exact current session on connection and again when a provider announces readiness, so either package load order works without polling. A valid snapshot carries a bounded provider-instance identity, monotonic sequence, queued/active aggregates, at most 16 `{ status, text }` display rows, and an explicit omitted count. The adapter rejects foreign sessions, stale or replaced providers, controls, oversized values, malformed counters, and cross-field inconsistencies.
+
+The panel shows only actionable active/queued markers and text. It reserves its last available row for `+N more`, adding `/todos` only when the width can hold it. Todo IDs, completed history, session paths, messages, raw entries, and errors never enter the panel DTO. If the sidebar surface is hidden, only private-ID-free active/queued counts reach `hiddenStatus()`. A missing or incompatible provider leaves the panel absent; after a matching version mismatch, snapshots remain blocked until a fresh compatible ready event arrives.
 
 ### Extension updates
 
