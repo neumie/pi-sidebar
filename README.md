@@ -10,7 +10,9 @@ Pi transcript and tools                         │
                                                 │  Verify compatibility
                                                 │
                                                 │ Subagents
-                                                │  ◆ reviewer · 18s
+                                                │  ◆ Workflow · Validation · 18s
+                                                │    ◉ focused tests · tester
+                                                │    1/3 complete · ↑4.2k ↓890
                                                 │
 Pi editor and session footer                    │ Background jobs
                                                 │  ▸ Typecheck · 7s
@@ -22,11 +24,12 @@ Pi conversation
 › editor
 Pi session footer
 ────────────────────────────────────────────────────
- ◆ reviewer · 18s
+ ◆ Workflow · Validation · 18s
+   1/3 complete · ↑4.2k ↓890
  ▸ Typecheck · 7s
 
 Hidden surface
-Pi session footer                 ◆ 2 agents · ▸ 3 jobs
+Pi session footer      ◆ 1 workflow · 2 agents · ▸ 3 jobs
 ```
 
 ## Features
@@ -107,7 +110,7 @@ The adapter requests and consumes `@neumie/pi-subagents-goal:v1:status`. A live 
 
 The adapter listens for `subagents:rpc:v1:ready`, sends versioned `ping` and `status` requests, and uses async lifecycle events for immediate refresh. It polls only after the RPC is available. Missing or incompatible subagent installations simply hide the panel.
 
-Foreground `subagent` tool calls are shown immediately from Pi's public tool lifecycle. When the peer advertises `fleetStatus` v1, each active child shows its role and elapsed time, footer-style model/effort and `↑input ↓output` usage, plus its caller-facing goal. The bounded RPC snapshot carries an omitted count so narrow surfaces can report hidden children without exposing run IDs. Overflow rows right-align `/subagents-fleet` when it fits, opening the package's live inspection-only fleet even when its native FleetView widget is disabled. Older peers degrade to an ID-free active count; no private modules are imported.
+Foreground `subagent` tool calls, including `workflowScript` launches, are shown immediately from Pi's public tool lifecycle and reconciled with the first structured snapshot. When the peer advertises `fleetStatus` v1, each active child shows its role and elapsed time, footer-style model/effort and `↑input ↓output` usage, plus its caller-facing goal. Peers with the additive `workflowGroups` v1 capability render each `workflowScript` run as one grouped card: workflow phase and elapsed time, up to two active public child labels/agents, completion/failure counts, and aggregate usage. The parser bounds malformed counters and the card adapts down to a header-only row on short surfaces instead of disappearing into false overflow. The bounded RPC snapshot carries an omitted count so narrow surfaces can report hidden groups without exposing run IDs. Overflow rows right-align `/subagents-fleet` when it fits, opening the package's live inspection-only fleet even when its native FleetView widget is disabled. Older peers degrade to ordinary fleet entries or an ID-free active count; no private modules are imported.
 
 ### pi-background-jobs
 

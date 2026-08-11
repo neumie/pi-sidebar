@@ -19,9 +19,35 @@ const IDLE_POLL_MS = 5_000;
 interface ForegroundLaunch {
 	id: string;
 	entries: Array<
-		Pick<FleetEntry, "agent" | "role" | "model" | "effort" | "goal">
+		Pick<FleetEntry, "agent" | "role" | "model" | "effort" | "goal" | "kind">
 	>;
 	startedAt: number;
+}
+
+type FleetWorkflowStepState = "pending" | "running" | "completed" | "failed";
+
+interface FleetWorkflowStep {
+	key: string;
+	agent: string;
+	label?: string;
+	phase?: string;
+	state: FleetWorkflowStepState;
+	model?: string;
+	effort?: string;
+	startedAt?: number;
+	tokens: { input: number; output: number; total: number };
+	goal?: string;
+}
+
+interface FleetWorkflow {
+	phase?: string;
+	total: number;
+	completed: number;
+	running: number;
+	pending: number;
+	failed: number;
+	steps: FleetWorkflowStep[];
+	omitted: number;
 }
 
 interface FleetEntry {
@@ -33,6 +59,8 @@ interface FleetEntry {
 	startedAt: number;
 	tokens: { input: number; output: number; total: number };
 	goal?: string;
+	kind?: "workflow";
+	workflow?: FleetWorkflow;
 }
 
 interface FleetSnapshot {
@@ -43,6 +71,9 @@ interface FleetSnapshot {
 type ProjectedEntry = Omit<FleetEntry, "key">;
 
 const MAX_FLEET_ENTRIES = 16;
+const MAX_WORKFLOW_STEPS = 16;
+const MAX_WORKFLOW_TOTAL = 256;
+const WORKFLOW_STEP_STATES = new Set<FleetWorkflowStepState>(["pending", "running", "completed", "failed"]);
 const SGR = /\x1b\[[0-?]*[ -/]*m/g;
 
 function cleanText(value: unknown, maximum: number): string | undefined {
@@ -59,6 +90,75 @@ function safeCount(value: unknown): number {
 	return typeof value === "number" && Number.isFinite(value) && value >= 0
 		? Math.min(Number.MAX_SAFE_INTEGER, Math.floor(value))
 		: 0;
+}
+
+function parseWorkflowStep(value: unknown): FleetWorkflowStep | undefined {
+	const step = record(value);
+	const key = cleanText(step?.key, 96);
+	const agent = cleanText(step?.agent, 96);
+	const state = cleanText(step?.state, 16) as FleetWorkflowStepState | undefined;
+	const tokens = record(step?.tokens);
+	if (!key || !agent || !state || !WORKFLOW_STEP_STATES.has(state) || !tokens) return undefined;
+	const startedAt = step?.startedAt;
+	const label = cleanText(step?.label, 128);
+	const phase = cleanText(step?.phase, 128);
+	const model = cleanText(step?.model, 128);
+	const effort = cleanText(step?.effort, 64);
+	const goal = cleanText(step?.goal, 512);
+	return {
+		key,
+		agent,
+		...(label ? { label } : {}),
+		...(phase ? { phase } : {}),
+		state,
+		...(model ? { model } : {}),
+		...(effort ? { effort } : {}),
+		...(typeof startedAt === "number" && Number.isSafeInteger(startedAt) && startedAt >= 0 ? { startedAt } : {}),
+		tokens: { input: safeCount(tokens.input), output: safeCount(tokens.output), total: safeCount(tokens.total) },
+		...(goal ? { goal } : {}),
+	};
+}
+
+function normalizeWorkflowProgress(workflow: Record<string, unknown>, steps: FleetWorkflowStep[]) {
+	const observed = {
+		completed: steps.filter((step) => step.state === "completed").length,
+		running: steps.filter((step) => step.state === "running").length,
+		pending: steps.filter((step) => step.state === "pending").length,
+		failed: steps.filter((step) => step.state === "failed").length,
+	};
+	const boundedCount = (value: unknown) => Math.min(MAX_WORKFLOW_TOTAL, safeCount(value));
+	let completed = Math.max(observed.completed, boundedCount(workflow.completed));
+	let running = Math.max(observed.running, boundedCount(workflow.running));
+	let pending = Math.max(observed.pending, boundedCount(workflow.pending));
+	let failed = Math.max(observed.failed, boundedCount(workflow.failed));
+	if (completed + running + pending + failed > MAX_WORKFLOW_TOTAL) {
+		({ completed, running, pending, failed } = observed);
+	}
+	const accounted = completed + running + pending + failed;
+	const total = Math.min(MAX_WORKFLOW_TOTAL, Math.max(steps.length, accounted, boundedCount(workflow.total)));
+	return {
+		total,
+		completed,
+		running,
+		pending,
+		failed,
+		omitted: Math.min(total, Math.max(boundedCount(workflow.omitted), Math.max(0, total - steps.length))),
+	};
+}
+
+function parseWorkflow(value: unknown): FleetWorkflow | undefined {
+	const workflow = record(value);
+	if (!workflow || !Array.isArray(workflow.steps)) return undefined;
+	const steps = workflow.steps.slice(0, MAX_WORKFLOW_STEPS).flatMap((value) => {
+		const step = parseWorkflowStep(value);
+		return step ? [step] : [];
+	});
+	const phase = cleanText(workflow.phase, 128);
+	return {
+		...(phase ? { phase } : {}),
+		...normalizeWorkflowProgress(workflow, steps),
+		steps,
+	};
 }
 
 /** Parse the documented optional v1 fleet capability; malformed entries are dropped. */
@@ -78,6 +178,7 @@ export function parseSubagentFleet(value: unknown): FleetSnapshot | undefined {
 			const model = cleanText(entry?.model, 128);
 			const effort = cleanText(entry?.effort, 64);
 			const goal = cleanText(entry?.goal, 512);
+			const workflow = entry?.kind === "workflow" ? parseWorkflow(entry.workflow) : undefined;
 			entries.push({
 				key,
 				agent,
@@ -91,6 +192,7 @@ export function parseSubagentFleet(value: unknown): FleetSnapshot | undefined {
 					total: safeCount(tokens.total),
 				},
 				...(goal ? { goal } : {}),
+				...(workflow ? { kind: "workflow" as const, workflow } : {}),
 			});
 		}
 		entries.sort((left, right) => left.startedAt - right.startedAt || left.key.localeCompare(right.key));
@@ -157,6 +259,8 @@ function launchEntries(value: unknown): ForegroundLaunch["entries"] {
 				: {}),
 		};
 	};
+	const workflowScript = cleanText(input.workflowScript, 512);
+	if (workflowScript) return [{ agent: "workflow", kind: "workflow", goal: workflowScript }];
 	if (Array.isArray(input.tasks))
 		return input.tasks
 			.map(entry)
@@ -216,6 +320,13 @@ function elapsed(startedAt: number, now: number): string {
 		: `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
+function workflowStepGlyph(state: FleetWorkflowStepState, theme: Theme): string {
+	if (state === "running") return theme.fg("accent", "◉");
+	if (state === "pending") return theme.fg("dim", "○");
+	if (state === "failed") return theme.fg("error", "×");
+	return theme.fg("success", "✓");
+}
+
 function colorStatusLine(line: string, theme: Theme): string {
 	if (line.startsWith("●") || line.startsWith("◆")) {
 		return `${theme.fg("accent", "◆")}${line.slice(1)}`;
@@ -238,7 +349,12 @@ function projectEntries(
 ): { entries: ProjectedEntry[]; totalActive: number } {
 	const remote = (snapshot?.entries ?? []).map(({ key: _key, ...entry }) => entry);
 	const availableMatches = new Map<string, number>();
+	let availableWorkflowMatches = 0;
 	for (const entry of remote) {
+		if (entry.kind === "workflow") {
+			availableWorkflowMatches += 1;
+			continue;
+		}
 		const signature = entrySignature(entry);
 		availableMatches.set(signature, (availableMatches.get(signature) ?? 0) + 1);
 	}
@@ -250,6 +366,10 @@ function projectEntries(
 				startedAt: launch.startedAt,
 				tokens: { input: 0, output: 0, total: 0 },
 			};
+			if (projected.kind === "workflow" && availableWorkflowMatches > 0) {
+				availableWorkflowMatches -= 1;
+				continue;
+			}
 			const signature = entrySignature(projected);
 			const matches = availableMatches.get(signature) ?? 0;
 			if (matches > 0) {
@@ -504,9 +624,16 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 			return disconnect;
 		},
 		hiddenStatus() {
-			const projected = projectEntries(fleetSnapshot, foreground).totalActive;
-			const count = fleetSnapshot ? projected : Math.max(projected, legacyActiveCount);
-			return count > 0 ? `◆ ${count} agent${count === 1 ? "" : "s"}` : undefined;
+			const projection = projectEntries(fleetSnapshot, foreground);
+			const count = fleetSnapshot ? projection.totalActive : Math.max(projection.totalActive, legacyActiveCount);
+			if (count <= 0) return undefined;
+			const workflows = projection.entries.filter((entry) => entry.kind === "workflow" && entry.workflow);
+			if (workflows.length === 0) return `◆ ${count} agent${count === 1 ? "" : "s"}`;
+			const workflowAgents = workflows.reduce((total, entry) => total + (entry.workflow?.running ?? 0) + (entry.workflow?.pending ?? 0), 0);
+			const agentCount = Math.max(0, count - workflows.length) + workflowAgents;
+			const parts = [`${workflows.length} workflow${workflows.length === 1 ? "" : "s"}`];
+			if (agentCount > 0) parts.push(`${agentCount} agent${agentCount === 1 ? "" : "s"}`);
+			return `◆ ${parts.join(" · ")}`;
 		},
 		render({ width, theme, now, height, surface }) {
 			const maxRows = Math.max(0, height);
@@ -514,7 +641,27 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 			const projection = projectEntries(fleetSnapshot, foreground);
 			const lines: string[] = [];
 			let represented = 0;
-			const renderEntry = (entry: ProjectedEntry): string[] => {
+			const renderEntry = (entry: ProjectedEntry, budget: number): string[] => {
+				const usage = theme.fg("text", `↑${formatTokens(entry.tokens.input)} ↓${formatTokens(entry.tokens.output)}`);
+				if (entry.kind === "workflow" && entry.workflow) {
+					if (budget <= 0) return [];
+					const phase = entry.workflow.phase ? `${divider}${theme.fg("accent", entry.workflow.phase)}` : "";
+					const header = `${theme.fg("accent", "◆")} ${theme.bold("Workflow")}${phase}${divider}${theme.fg("dim", elapsed(entry.startedAt, now))}`;
+					if (budget === 1) return [header];
+					const activeSteps = entry.workflow.steps.filter((step) => step.state === "running" || step.state === "pending");
+					const candidates = activeSteps.length > 0 ? activeSteps : entry.workflow.steps;
+					const childCapacity = Math.min(2, Math.max(0, budget - 2));
+					const children = candidates.slice(0, childCapacity).map((step) => {
+						const label = step.label ?? step.key;
+						const agent = step.agent !== label ? `${divider}${theme.fg("muted", step.agent)}` : "";
+						return `  ${workflowStepGlyph(step.state, theme)} ${label}${agent}`;
+					});
+					const progress = entry.workflow.total > 0
+						? `${entry.workflow.completed}/${entry.workflow.total} complete${entry.workflow.failed > 0 ? ` · ${entry.workflow.failed} failed` : ""}`
+						: "waiting for child launch";
+					const summary = `${theme.fg("dim", `  ${progress}`)}${divider}${usage}`;
+					return [header, ...children, summary];
+				}
 				const role = entry.role && entry.role !== entry.agent
 					? `${entry.role} · ${entry.agent}`
 					: entry.agent;
@@ -524,7 +671,6 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 					: theme.fg("muted", "model pending");
 				const effortText = entry.effort ?? "effort pending";
 				const effort = theme.fg(entry.effort ? effortColor(entry.effort) : "dim", effortText);
-				const usage = theme.fg("text", `↑${formatTokens(entry.tokens.input)} ↓${formatTokens(entry.tokens.output)}`);
 				const goal = theme.fg("dim", `↳ ${entry.goal ?? "Goal unavailable"}`);
 				if (surface === "narrow") {
 					return [`${identity}${divider}${model}${divider}${effort}`, `${usage}${divider}${goal}`];
@@ -532,9 +678,10 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 				return [identity, [model, effort, usage].join(divider), goal];
 			};
 			for (const entry of projection.entries) {
-				const entryLines = renderEntry(entry);
 				const reserveOverflow = projection.totalActive > represented + 1 ? 1 : 0;
-				if (lines.length + entryLines.length + reserveOverflow > maxRows) break;
+				const budget = Math.max(0, maxRows - lines.length - reserveOverflow);
+				const entryLines = renderEntry(entry, budget);
+				if (entryLines.length === 0 || entryLines.length > budget) break;
 				lines.push(...entryLines);
 				represented += 1;
 			}

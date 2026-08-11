@@ -811,6 +811,91 @@ describe("subagent status adapter", () => {
 		}), { entries: [], totalActive: 4 });
 	});
 
+	it("parses additive workflow grouping while keeping malformed details fail-open", () => {
+		assert.deepEqual(parseSubagentFleet({
+			version: 1,
+			totalActive: 1,
+			entries: [{
+				key: "fleet-1",
+				agent: "workflow",
+				startedAt: 100,
+				tokens: { input: 4_200, output: 890, total: 5_090 },
+				kind: "workflow",
+				workflow: {
+					phase: "\u001b[31mValidation\u001b[0m",
+					total: 3,
+					completed: 1,
+					running: 1,
+					pending: 1,
+					failed: 0,
+					omitted: 0,
+					steps: [
+						{ key: "tests", agent: "tester", label: "Focused\ntests", phase: "Validation", state: "running", startedAt: 110, tokens: { input: 2_000, output: 400, total: 2_400 } },
+						{ key: "review", agent: "reviewer", label: "UX review", phase: "Validation", state: "pending", tokens: {} },
+						{ key: "scan", agent: "scout", state: "completed", tokens: {} },
+					],
+				},
+			}],
+		}), {
+			entries: [{
+				key: "fleet-1",
+				agent: "workflow",
+				startedAt: 100,
+				tokens: { input: 4_200, output: 890, total: 5_090 },
+				kind: "workflow",
+				workflow: {
+					phase: "Validation",
+					total: 3,
+					completed: 1,
+					running: 1,
+					pending: 1,
+					failed: 0,
+					omitted: 0,
+					steps: [
+						{ key: "tests", agent: "tester", label: "Focused tests", phase: "Validation", state: "running", startedAt: 110, tokens: { input: 2_000, output: 400, total: 2_400 } },
+						{ key: "review", agent: "reviewer", label: "UX review", phase: "Validation", state: "pending", tokens: { input: 0, output: 0, total: 0 } },
+						{ key: "scan", agent: "scout", state: "completed", tokens: { input: 0, output: 0, total: 0 } },
+					],
+				},
+			}],
+			totalActive: 1,
+		});
+		assert.deepEqual(parseSubagentFleet({
+			version: 1,
+			entries: [{ key: "fleet-1", agent: "workflow", startedAt: 100, tokens: {}, kind: "workflow", workflow: { steps: "bad" } }],
+		}), {
+			entries: [{ key: "fleet-1", agent: "workflow", startedAt: 100, tokens: { input: 0, output: 0, total: 0 } }],
+			totalActive: 1,
+		});
+		const normalized = parseSubagentFleet({
+			version: 1,
+			entries: [{
+				key: "fleet-hostile",
+				agent: "workflow",
+				startedAt: 100,
+				tokens: {},
+				kind: "workflow",
+				workflow: {
+					total: Number.MAX_SAFE_INTEGER,
+					completed: Number.MAX_SAFE_INTEGER,
+					running: Number.MAX_SAFE_INTEGER,
+					pending: Number.MAX_SAFE_INTEGER,
+					failed: Number.MAX_SAFE_INTEGER,
+					steps: [{ key: "live", agent: "tester", state: "running", tokens: {} }],
+				},
+			}],
+		}) as any;
+		assert.deepEqual(normalized.entries[0].workflow, {
+			total: 256,
+			completed: 0,
+			running: 1,
+			pending: 0,
+			failed: 0,
+			steps: [{ key: "live", agent: "tester", state: "running", tokens: { input: 0, output: 0, total: 0 } }],
+			omitted: 255,
+		});
+	});
+
 	it("replaces a foreground placeholder with its structured fleet record", async () => {
 		const { pi, events, emitLifecycle } = fakePi();
 		events.on("subagents:rpc:v1:request", (payload) => {
@@ -870,6 +955,46 @@ describe("subagent status adapter", () => {
 		dispose();
 	});
 
+	it("shows and reconciles a workflowScript foreground placeholder", async () => {
+		const { pi, events, emitLifecycle } = fakePi();
+		serveFleet(events, () => ({
+			version: 1,
+			totalActive: 1,
+			omitted: 0,
+			entries: [{
+				key: "fleet-workflow",
+				agent: "workflow",
+				startedAt: 100,
+				tokens: { input: 12, output: 3, total: 15 },
+				kind: "workflow",
+				workflow: {
+					total: 1,
+					completed: 0,
+					running: 1,
+					pending: 0,
+					failed: 0,
+					steps: [{ key: "tests", agent: "tester", label: "Focused tests", state: "running", tokens: {} }],
+					omitted: 0,
+				},
+			}],
+		}));
+		const panel = createSubagentsPanel(pi);
+		const dispose = connect(panel);
+		emitLifecycle("tool_execution_start", {
+			toolName: "subagent",
+			toolCallId: "local-workflow",
+			args: { workflowScript: "return runs.run('tests', { agent: 'tester', task: 'Run focused tests' })" },
+		});
+		assert.match(panel.render({ width: 40, height: 3, surface: "right", theme, now: 1_000 }).join("\n"), /◆ workflow/);
+		await tick();
+		await tick();
+		const lines = panel.render({ width: 40, height: 4, surface: "right", theme, now: 1_000 });
+		assert.equal(lines.filter((line) => line.includes("Workflow")).length, 1);
+		assert.match(lines.join("\n"), /Focused tests · tester/);
+		assert.match(lines.join("\n"), /↑12 ↓3/);
+		dispose();
+	});
+
 	it("shows two narrow children, dedicated rail goals, and bounded overflow", async () => {
 		const { pi, events } = fakePi();
 		serveFleet(events, () => ({
@@ -916,6 +1041,56 @@ describe("subagent status adapter", () => {
 			panel.render({ width: 22, height: 1, surface: "right", theme, now: 120_000 }).at(-1),
 			"+3 more",
 		);
+		dispose();
+	});
+
+	it("groups workflow phase, children, progress, and usage in bounded rows", async () => {
+		const { pi, events } = fakePi();
+		serveFleet(events, () => ({
+			version: 1,
+			totalActive: 1,
+			omitted: 0,
+			entries: [{
+				key: "fleet-workflow",
+				agent: "workflow",
+				startedAt: 0,
+				tokens: { input: 4_200, output: 890, total: 5_090 },
+				kind: "workflow",
+				workflow: {
+					phase: "Validation",
+					total: 3,
+					completed: 1,
+					running: 1,
+					pending: 1,
+					failed: 0,
+					omitted: 0,
+					steps: [
+						{ key: "tests", agent: "tester", label: "Focused tests", state: "running", tokens: {} },
+						{ key: "review", agent: "reviewer", label: "UX review", state: "pending", tokens: {} },
+						{ key: "scan", agent: "scout", label: "Repository scan", state: "completed", tokens: {} },
+					],
+				},
+			}],
+		}));
+		const panel = createSubagentsPanel(pi);
+		const dispose = connect(panel);
+		await tick();
+		await tick();
+
+		assert.deepEqual(panel.render({ width: 36, height: 4, surface: "right", theme, now: 120_000 }), [
+			"◆ Workflow · Validation · 2m 0s",
+			"  ◉ Focused tests · tester",
+			"  ○ UX review · reviewer",
+			"  1/3 complete · ↑4.2k ↓890",
+		]);
+		assert.equal(panel.hiddenStatus?.(), "◆ 1 workflow · 2 agents");
+		assert.deepEqual(panel.render({ width: 36, height: 2, surface: "right", theme, now: 120_000 }), [
+			"◆ Workflow · Validation · 2m 0s",
+			"  1/3 complete · ↑4.2k ↓890",
+		]);
+		assert.deepEqual(panel.render({ width: 36, height: 1, surface: "right", theme, now: 120_000 }), [
+			"◆ Workflow · Validation · 2m 0s",
+		]);
 		dispose();
 	});
 
