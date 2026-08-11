@@ -29,6 +29,41 @@ class EventBus {
 	}
 }
 
+class FakeClock {
+	private nextId = 0;
+	private readonly tasks = new Map<
+		number,
+		{ callback: () => void; delayMs: number }
+	>();
+
+	readonly scheduleClock = (callback: () => void, delayMs: number): number => {
+		const id = ++this.nextId;
+		this.tasks.set(id, { callback, delayMs });
+		return id;
+	};
+
+	readonly cancelClock = (handle: unknown): void => {
+		if (typeof handle === "number") this.tasks.delete(handle);
+	};
+
+	pending(): number {
+		return this.tasks.size;
+	}
+
+	delays(): number[] {
+		return [...this.tasks.values()].map((task) => task.delayMs);
+	}
+
+	runNext(): void {
+		const next = this.tasks.entries().next().value as
+			| [number, { callback: () => void; delayMs: number }]
+			| undefined;
+		if (!next) return;
+		this.tasks.delete(next[0]);
+		next[1].callback();
+	}
+}
+
 class FakeTui {
 	readonly terminal = { columns: 120, rows: 14 };
 	readonly overlays: Array<{ component: Component; options?: OverlayOptions }> =
@@ -163,6 +198,63 @@ function harness() {
 }
 
 describe("SidebarController", () => {
+	it("runs one shared clock only while a visible panel requests it", async () => {
+		const h = harness();
+		const clock = new FakeClock();
+		let refreshInterval: number | undefined;
+		let invalidatePanel: () => void = () => undefined;
+		new SidebarController(h.pi, {
+			scheduleClock: clock.scheduleClock,
+			cancelClock: clock.cancelClock,
+		}).register();
+		h.events.emit(SIDEBAR_REGISTER_EVENT, {
+			version: 1,
+			token: "clock-panel-token",
+			panel: {
+				id: "example.clock",
+				title: "Clock",
+				connect: (context: SidebarPanelConnection) => {
+					invalidatePanel = context.invalidate;
+				},
+				refreshIntervalMs: () => refreshInterval,
+				render: () => ["elapsed"],
+			},
+		});
+
+		h.start();
+		await Promise.resolve();
+		assert.equal(clock.pending(), 0);
+
+		refreshInterval = 1_000;
+		invalidatePanel();
+		await Promise.resolve();
+		assert.deepEqual(clock.delays(), [1_000]);
+
+		h.tui.terminal.columns = 80;
+		h.tui.terminal.rows = 14;
+		h.tui.render(80);
+		await Promise.resolve();
+		assert.equal(clock.pending(), 0);
+
+		h.tui.terminal.rows = 40;
+		h.tui.render(80);
+		await Promise.resolve();
+		assert.deepEqual(clock.delays(), [1_000]);
+
+		const before = h.tui.requests;
+		clock.runNext();
+		await Promise.resolve();
+		assert.ok(h.tui.requests > before);
+		assert.deepEqual(clock.delays(), [1_000]);
+
+		refreshInterval = undefined;
+		invalidatePanel();
+		await Promise.resolve();
+		assert.equal(clock.pending(), 0);
+		h.shutdown();
+		assert.equal(clock.pending(), 0);
+	});
+
 	it("mounts right and configurable narrow docks without footer ownership", async () => {
 		const h = harness();
 		let connected = 0;

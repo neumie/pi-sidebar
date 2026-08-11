@@ -5,6 +5,7 @@ import { withRightHint } from "../render.ts";
 const MAX_RUNNING_JOBS = 16;
 const MAX_DISPLAY_TEXT = 240;
 const MAX_PRIVATE_ID = 128;
+const ELAPSED_REFRESH_MS = 1_000;
 
 export interface BackgroundJobSummary {
 	label?: string;
@@ -280,6 +281,14 @@ export function createBackgroundJobsPanel(pi: ExtensionAPI): SidebarPanel {
 		hiddenStatus() {
 			const count = snapshot?.runningCount ?? 0;
 			return count > 0 ? `▸ ${count} job${count === 1 ? "" : "s"}` : undefined;
+		},
+		refreshIntervalMs() {
+			const hasElapsedTime = snapshot?.running !== undefined
+				? snapshot.running.length > 0
+				: snapshot?.primary !== undefined || snapshot?.oldestStart !== undefined;
+			return (snapshot?.runningCount ?? 0) > 0 && hasElapsedTime
+				? ELAPSED_REFRESH_MS
+				: undefined;
 		},
 		render({ width, height, theme, now }) {
 			if (!snapshot || snapshot.runningCount === 0) return [];

@@ -108,7 +108,7 @@ The adapter requests and consumes `@neumie/pi-subagents-goal:v1:status`. A live 
 
 ### pi-subagents
 
-The adapter listens for `subagents:rpc:v1:ready`, sends versioned `ping` and `status` requests, and uses async lifecycle events for immediate refresh. It polls only after the RPC is available. Missing or incompatible subagent installations simply hide the panel.
+The adapter listens for `subagents:rpc:v1:ready`, sends versioned `ping` and `status` requests, and uses async lifecycle events for immediate refresh. It polls only after the RPC is available, reconciling every two seconds while active and every 30 seconds while idle. Missing or incompatible subagent installations simply hide the panel.
 
 Foreground `subagent` tool calls, including `workflowScript` launches, are shown immediately from Pi's public tool lifecycle and reconciled with the first structured snapshot. When the peer advertises `fleetStatus` v1, each active child shows its role and elapsed time, footer-style model/effort and `↑input ↓output` usage, plus its caller-facing goal. Peers with the additive `workflowGroups` v1 capability render each `workflowScript` run as one grouped card: workflow phase and elapsed time, up to two active public child labels/agents, completion/failure counts, and aggregate usage. The parser bounds malformed counters and the card adapts down to a header-only row on short surfaces instead of disappearing into false overflow. The bounded RPC snapshot carries an omitted count so narrow surfaces can report hidden groups without exposing run IDs. Overflow rows right-align `/subagents-fleet` when it fits, opening the package's live inspection-only fleet even when its native FleetView widget is disabled. Older peers degrade to ordinary fleet entries or an ID-free active count; no private modules are imported.
 
@@ -179,6 +179,7 @@ Panel rules:
 - Set `showTitleInRight: false` or `showTitleInNarrow: false` only when the corresponding panel body has a stable visual identity of its own.
 - Set `placement: "bottom"` only for compact, self-contained status that belongs at the final body row(s). Use `placement: "hint"` for one compact line that may share the host's final `/sidebar` command row; the first visible hint in panel order wins.
 - `hiddenStatus()` is optional, synchronous, bounded by the host, and must expose only aggregate, private-ID-free text. It appears in Pi's right-side footer status area only while the sidebar surface is hidden.
+- `refreshIntervalMs()` is optional and should return a positive interval only while visible output depends on time. State-change events should still call `invalidate()` immediately; returning `undefined` keeps the panel fully event-driven.
 - `render()` is synchronous and returns bounded terminal lines.
 - `render({ width, height, surface })` receives only the usable panel-body area after host chrome; `surface` is `right` or `narrow`. A title-free narrow panel receives the reclaimed title row and inset.
 - Returning no lines hides the panel section.

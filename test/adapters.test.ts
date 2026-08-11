@@ -324,6 +324,23 @@ describe("background jobs adapter", () => {
 		output = panel.render({ width: 36, height: 3, theme, now: 2_000 }).join("\n");
 		assert.match(output, /Background job/);
 		assert.doesNotMatch(output, /cat|Users|legacy/);
+		assert.equal(panel.refreshIntervalMs?.(), 1_000);
+
+		events.emit("background-jobs:changed", {
+			runningCount: 1,
+			terminalRecentCount: 0,
+		});
+		assert.equal(panel.refreshIntervalMs?.(), undefined);
+
+		events.emit("background-jobs:changed", {
+			runningCount: 1,
+			terminalRecentCount: 0,
+			primary: { id: "03", command: "sleep 1", startedAt: 1 },
+			running: [],
+			runningOmitted: 1,
+		});
+		assert.equal(panel.refreshIntervalMs?.(), undefined);
+		assert.match(panel.render({ width: 36, height: 1, theme, now: 2_000 }).join("\n"), /\+1 more/);
 		dispose();
 	});
 
@@ -331,6 +348,7 @@ describe("background jobs adapter", () => {
 		const { pi, events } = fakePi();
 		const panel = createBackgroundJobsPanel(pi);
 		assert.equal(panel.hiddenStatus?.(), undefined);
+		assert.equal(panel.refreshIntervalMs?.(), undefined);
 		events.emit("background-jobs:changed", {
 			runningCount: 3,
 			terminalRecentCount: 2,
@@ -350,6 +368,7 @@ describe("background jobs adapter", () => {
 		});
 		const dispose = connect(panel);
 		assert.equal(panel.hiddenStatus?.(), "▸ 3 jobs");
+		assert.equal(panel.refreshIntervalMs?.(), 1_000);
 		assert.deepEqual(
 			panel.render({ width: 36, height: 5, theme, now: 6_000 }),
 			[
@@ -1013,10 +1032,12 @@ describe("subagent status adapter", () => {
 			],
 		}));
 		const panel = createSubagentsPanel(pi);
+		assert.equal(panel.refreshIntervalMs?.(), undefined);
 		const dispose = connect(panel);
 		await tick();
 		await tick();
 
+		assert.equal(panel.refreshIntervalMs?.(), 1_000);
 		const narrow = panel.render({ width: 75, height: 5, surface: "narrow", theme, now: 120_000 });
 		assert.equal(narrow.length, 5);
 		assert.match(narrow.join("\n"), /^◆ worker.*2m 0s.*GPT-5\.6 Terra.*high/m);
@@ -1248,6 +1269,7 @@ describe("subagent status adapter", () => {
 				.join("\n"),
 			/1 async run/,
 		);
+		assert.equal(panel.refreshIntervalMs?.(), undefined);
 
 		events.emit("subagent:async-started", {});
 		await tick();
@@ -1257,6 +1279,30 @@ describe("subagent status adapter", () => {
 			[],
 		);
 		assert.ok(invalidations >= 2);
+		dispose();
+	});
+
+	it("does not repaint for unchanged idle reconciliation", async () => {
+		const { pi, events } = fakePi();
+		serveFleet(events, () => ({
+			version: 1,
+			totalActive: 0,
+			omitted: 0,
+			entries: [],
+		}));
+		const panel = createSubagentsPanel(pi);
+		let invalidations = 0;
+		const dispose = connect(panel, () => {
+			invalidations += 1;
+		});
+		await tick();
+		await tick();
+		assert.equal(invalidations, 0);
+
+		events.emit("subagent:async-complete", {});
+		await tick();
+		await tick();
+		assert.equal(invalidations, 0);
 		dispose();
 	});
 

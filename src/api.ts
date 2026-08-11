@@ -48,6 +48,11 @@ export interface SidebarPanel {
 	): void | (() => void) | Promise<void | (() => void)>;
 	/** Compact, private-ID-free activity text shown in the footer only while the host is hidden. */
 	hiddenStatus?(): string | undefined;
+	/**
+	 * Request periodic repaints only while time-dependent content is visible.
+	 * Return undefined when state-change invalidations are sufficient.
+	 */
+	refreshIntervalMs?(): number | undefined;
 	/** Return no lines to hide this panel. Rendering must be synchronous. */
 	render(context: SidebarPanelRenderContext): readonly string[];
 }
@@ -81,6 +86,14 @@ export function assertSidebarPanel(panel: SidebarPanel): void {
 	}
 	if (panel.hiddenStatus !== undefined && typeof panel.hiddenStatus !== "function") {
 		throw new Error("Sidebar panel hiddenStatus must be a function when provided.");
+	}
+	if (
+		panel.refreshIntervalMs !== undefined &&
+		typeof panel.refreshIntervalMs !== "function"
+	) {
+		throw new Error(
+			"Sidebar panel refreshIntervalMs must be a function when provided.",
+		);
 	}
 	if (typeof panel.render !== "function") throw new Error("Sidebar panel render must be a function.");
 	if (panel.connect !== undefined && typeof panel.connect !== "function") {

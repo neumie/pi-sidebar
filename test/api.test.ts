@@ -71,6 +71,10 @@ describe("registerSidebarPanel", () => {
 			/hiddenStatus/,
 		);
 		assert.throws(
+			() => registerSidebarPanel(pi, { ...panel, refreshIntervalMs: 1_000 } as unknown as SidebarPanel),
+			/refreshIntervalMs/,
+		);
+		assert.throws(
 			() => registerSidebarPanel(pi, { ...panel, showTitleInRight: "no" } as unknown as SidebarPanel),
 			/showTitleInRight/,
 		);

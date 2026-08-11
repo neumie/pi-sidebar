@@ -23,9 +23,9 @@ sidebar surface
 
 ## Public seam
 
-A provider knows five facts: stable identity, title/order/placement, session connection lifecycle, and synchronous rendering. It does not know how the host obtains the TUI, reserves width, mounts overlays, handles reload, or chooses a future native API.
+A provider knows six facts: stable identity, title/order/placement, session connection lifecycle, synchronous rendering, and an optional activity-scoped refresh interval for time-dependent output. It does not know how the host obtains the TUI, reserves width, mounts overlays, handles reload, or chooses a future native API.
 
-Registration uses versioned `pi.events` messages rather than a public mutable global. Providers announce immediately and again whenever a host emits readiness. Each registration has an opaque token; replacement is atomic by panel id and stale unregister messages are ignored.
+Registration uses versioned `pi.events` messages rather than a public mutable global. Providers announce immediately and again whenever a host emits readiness. Each registration has an opaque token; replacement is atomic by panel id and stale unregister messages are ignored. Static panels repaint only after invalidation events. A panel whose visible output contains elapsed time may return `refreshIntervalMs()` while active; the host schedules one shared bounded timeout at the shortest requested interval and cancels it whenever the surface hides or no panel requests a clock.
 
 A private `Symbol.for` slot elects one host instance during reload. It does not carry panel state or form part of the provider interface.
 
@@ -77,7 +77,8 @@ Terminals that fit neither the right rail nor the minimum narrow geometry hide t
 20. Publish bounded, private-ID-free panel summaries through Pi's footer-status seam only while the sidebar backend is hidden; clear them on every visible backend and session teardown.
 21. Render integration health only from explicit actionable evidence; healthy, inactive, lazy, cached, malformed, and unknown states consume no panel rows.
 22. Render extension freshness only as `/extension-updates (N)` on the host's shared command-hint row; current, attention-only, error, and age-held states consume no panel rows, and package details remain in the command.
-23. Keep todo integration static and event-driven: exact-session ready/request replay, provider-instance pinning, monotonic sequence rejection, bounded actionable display text, and private-ID-free hidden counts; never import queue internals or render completed work.
+23. Keep static panels event-driven. Schedule one bounded host clock only while a visible panel explicitly requests time-dependent refreshes, and cancel it on hidden, inactive, replacement, or shutdown transitions.
+24. Keep todo integration static and event-driven: exact-session ready/request replay, provider-instance pinning, monotonic sequence rejection, bounded actionable display text, and private-ID-free hidden counts; never import queue internals or render completed work.
 
 ## Integration contracts
 
@@ -105,7 +106,7 @@ When `ping.capabilities.fleetStatus.version` is `1`, the v1 status reply additio
 - stable aggregate fields: `runningCount`, `terminalRecentCount`, optional `oldestStart`, and optional primary job metadata
 - optional structured fields from `pi-background-jobs` 0.3.0+: newest-first `running` summaries (maximum 16) and exact `runningOmitted`
 
-Each structured summary carries only an optional bounded display label and `startedAt`; it intentionally has no command, path, or private job id. The adapter validates aggregate/list consistency, fills the body-row budget with jobs, and reserves an overflow row only when jobs are actually hidden. That overflow row right-aligns the `/jobs` manager hint when the usable body width can hold both summary and hint; otherwise the summary wins. Older aggregate-only payloads remain valid. The event intentionally omits full job output and paths, and the sidebar does not bypass that privacy boundary.
+Each structured summary carries only an optional bounded display label and `startedAt`; it intentionally has no command, path, or private job id. The adapter validates aggregate/list consistency, fills the body-row budget with jobs, and reserves an overflow row only when jobs are actually hidden. That overflow row right-aligns `/jobs` when the usable body width can hold both summary and hint; otherwise the summary wins. Older aggregate-only payloads remain valid. The event intentionally omits full job output and paths, and the sidebar does not bypass that privacy boundary.
 
 ### pi-todo
 

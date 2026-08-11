@@ -44,6 +44,8 @@ const ACTIVITY_STATUS_KEY = "@neumie/pi-sidebar:activity";
 const MAX_ACTIVITY_STATUS_PARTS = 8;
 const MAX_ACTIVITY_STATUS_PART_WIDTH = 48;
 const MAX_ACTIVITY_STATUS_WIDTH = 160;
+const MIN_PANEL_REFRESH_MS = 500;
+const MAX_PANEL_REFRESH_MS = 60_000;
 const SGR = /\x1b\[[0-9:;]*m/g;
 const HOST_SLOT = Symbol.for("@neumie/pi-sidebar:host:v1");
 
@@ -65,7 +67,12 @@ interface SessionRuntime {
 	postFooterHandle?: PostFooterSlotHandle;
 	activityStatus?: string;
 	activityStatusInitialized?: boolean;
-	tick?: ReturnType<typeof setInterval>;
+	clock?: unknown;
+}
+
+interface SidebarControllerDependencies {
+	scheduleClock(callback: () => void, delayMs: number): unknown;
+	cancelClock(handle: unknown): void;
 }
 
 interface SidebarSettings {
@@ -103,6 +110,19 @@ function aliasedIntegerEnv(
 	return process.env[name] === undefined
 		? integerEnv(legacyName, fallback, minimum, maximum)
 		: integerEnv(name, fallback, minimum, maximum);
+}
+
+function defaultDependencies(): SidebarControllerDependencies {
+	return {
+		scheduleClock(callback, delayMs) {
+			const timer = setTimeout(callback, delayMs);
+			timer.unref?.();
+			return timer;
+		},
+		cancelClock(handle) {
+			clearTimeout(handle as ReturnType<typeof setTimeout>);
+		},
+	};
 }
 
 function initialSettings(): SidebarSettings {
@@ -212,8 +232,14 @@ export class SidebarController {
 	private generation = 0;
 	private renderQueued = false;
 	private disposed = false;
+	private readonly dependencies: SidebarControllerDependencies;
 
-	constructor(private readonly pi: ExtensionAPI) {}
+	constructor(
+		private readonly pi: ExtensionAPI,
+		dependencies: Partial<SidebarControllerDependencies> = {},
+	) {
+		this.dependencies = { ...defaultDependencies(), ...dependencies };
+	}
 
 	register(): void {
 		const globals = globalThis as HostGlobal;
@@ -318,8 +344,7 @@ export class SidebarController {
 			this.connectPanel(registration, runtime);
 		if (this.settings.enabled) this.mount(runtime);
 		this.syncActivityStatus(runtime);
-		runtime.tick = setInterval(() => this.requestRender(), 1_000);
-		runtime.tick.unref?.();
+		this.syncClock(runtime);
 		this.pi.events.emit(SIDEBAR_READY_EVENT, {
 			version: SIDEBAR_PROTOCOL_VERSION,
 			hostId: this.hostId,
@@ -388,6 +413,7 @@ export class SidebarController {
 							onWarning: (message) => runtime.ctx.ui.notify(message, "warning"),
 						},
 					);
+					this.syncClock(runtime);
 				} catch (error) {
 					const message =
 						error instanceof Error ? error.message : String(error);
@@ -395,6 +421,7 @@ export class SidebarController {
 				}
 				return new BootstrapComponent(() => {
 					if (!this.isCurrent(runtime)) return;
+					this.clearClock(runtime);
 					this.disposePostFooterSlot(runtime);
 					try {
 						runtime.ctx.ui.setWidget(NARROW_WIDGET_KEY, undefined);
@@ -414,6 +441,7 @@ export class SidebarController {
 	private remount(): void {
 		const runtime = this.session;
 		if (!runtime) return;
+		this.clearClock(runtime);
 		this.disposePostFooterSlot(runtime);
 		try {
 			runtime.ctx.ui.setWidget(WIDGET_KEY, undefined);
@@ -427,6 +455,7 @@ export class SidebarController {
 		runtime.narrowComponent = undefined;
 		if (this.settings.enabled) this.mount(runtime);
 		this.syncActivityStatus(runtime);
+		this.syncClock(runtime);
 	}
 
 	private requestPostFooterSlot(runtime: SessionRuntime): void {
@@ -571,7 +600,54 @@ export class SidebarController {
 			if (runtime) this.syncActivityStatus(runtime);
 			for (const component of runtime?.components ?? []) component.invalidate();
 			runtime?.surface?.requestRender();
+			if (runtime) this.syncClock(runtime);
 		});
+	}
+
+	private panelRefreshDelay(): number | undefined {
+		let minimum: number | undefined;
+		for (const registration of this.registrations.values()) {
+			try {
+				const requested = registration.panel.refreshIntervalMs?.();
+				if (
+					typeof requested !== "number" ||
+					!Number.isFinite(requested) ||
+					requested <= 0
+				)
+					continue;
+				const bounded = Math.min(
+					MAX_PANEL_REFRESH_MS,
+					Math.max(MIN_PANEL_REFRESH_MS, Math.floor(requested)),
+				);
+				minimum = minimum === undefined ? bounded : Math.min(minimum, bounded);
+			} catch {
+				// A failing optional clock request cannot keep the host busy.
+			}
+		}
+		return minimum;
+	}
+
+	private clearClock(runtime: SessionRuntime): void {
+		if (runtime.clock === undefined) return;
+		this.dependencies.cancelClock(runtime.clock);
+		runtime.clock = undefined;
+	}
+
+	private syncClock(runtime: SessionRuntime): void {
+		this.clearClock(runtime);
+		if (
+			!this.isCurrent(runtime) ||
+			!this.settings.enabled ||
+			!runtime.surface ||
+			runtime.surface.backend() === "hidden"
+		)
+			return;
+		const delay = this.panelRefreshDelay();
+		if (delay === undefined) return;
+		runtime.clock = this.dependencies.scheduleClock(() => {
+			runtime.clock = undefined;
+			if (this.isCurrent(runtime)) this.requestRender();
+		}, delay);
 	}
 
 	private syncActivityStatus(runtime: SessionRuntime): void {
@@ -614,6 +690,7 @@ export class SidebarController {
 	private stopSession(): void {
 		const runtime = this.session;
 		if (!runtime) return;
+		this.clearClock(runtime);
 		this.disposePostFooterSlot(runtime);
 		try {
 			runtime.ctx.ui.setStatus(ACTIVITY_STATUS_KEY, undefined);
@@ -621,7 +698,6 @@ export class SidebarController {
 			// Best effort for stale replacement-session contexts.
 		}
 		this.session = undefined;
-		if (runtime.tick) clearInterval(runtime.tick);
 		for (const registration of this.registrations.values())
 			this.disconnectPanel(registration);
 		try {

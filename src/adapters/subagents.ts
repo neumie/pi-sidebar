@@ -13,8 +13,9 @@ const REFRESH_EVENTS = [
 	"subagent:control-event",
 ] as const;
 const RPC_TIMEOUT_MS = 1_500;
-const ACTIVE_POLL_MS = 1_000;
-const IDLE_POLL_MS = 5_000;
+const ACTIVE_POLL_MS = 2_000;
+const IDLE_POLL_MS = 30_000;
+const ELAPSED_REFRESH_MS = 1_000;
 
 interface ForegroundLaunch {
 	id: string;
@@ -403,6 +404,13 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 	const pendingRpc = new Set<() => void>();
 	const foreground = new Map<string, ForegroundLaunch>();
 
+	const visibleStateKey = (): string => {
+		if (fleetSnapshot?.totalActive) return JSON.stringify(fleetSnapshot);
+		if (statusLines.length > 0 || legacyActiveCount > 0) {
+			return JSON.stringify({ statusLines, legacyActiveCount });
+		}
+		return "idle";
+	};
 	const clearPoll = () => {
 		if (pollTimer) clearTimeout(pollTimer);
 		pollTimer = undefined;
@@ -493,6 +501,7 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 		}
 		statusPending = true;
 		const requestGeneration = generation;
+		const previousStateKey = visibleStateKey();
 		try {
 			const data = record(await rpc("status"));
 			if (!connected || requestGeneration !== generation) return;
@@ -510,14 +519,14 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 				legacyActiveCount = parsed.count;
 				statusActive = parsed.active;
 			}
-			invalidate();
+			if (visibleStateKey() !== previousStateKey) invalidate();
 		} catch {
 			if (connected && requestGeneration === generation) {
 				statusLines = [];
 				fleetSnapshot = undefined;
 				legacyActiveCount = 0;
 				statusActive = false;
-				invalidate();
+				if (visibleStateKey() !== previousStateKey) invalidate();
 			}
 		} finally {
 			if (requestGeneration !== generation) return;
@@ -634,6 +643,11 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 			const parts = [`${workflows.length} workflow${workflows.length === 1 ? "" : "s"}`];
 			if (agentCount > 0) parts.push(`${agentCount} agent${agentCount === 1 ? "" : "s"}`);
 			return `◆ ${parts.join(" · ")}`;
+		},
+		refreshIntervalMs() {
+			return foreground.size > 0 || (fleetSnapshot?.entries.length ?? 0) > 0
+				? ELAPSED_REFRESH_MS
+				: undefined;
 		},
 		render({ width, theme, now, height, surface }) {
 			const maxRows = Math.max(0, height);
