@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { setImmediate as tick } from "node:timers/promises";
 import { describe, it } from "node:test";
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import {
 	createBackgroundJobsPanel,
 	parseBackgroundJobsPayload,
@@ -868,7 +869,10 @@ describe("subagent status adapter", () => {
 					completed: 1,
 					running: 1,
 					pending: 1,
+					planned: 0,
 					failed: 0,
+					skipped: 0,
+					cancelled: 0,
 					omitted: 0,
 					steps: [
 						{ key: "tests", agent: "tester", label: "Focused tests", phase: "Validation", state: "running", startedAt: 110, tokens: { input: 2_000, output: 400, total: 2_400 } },
@@ -909,10 +913,44 @@ describe("subagent status adapter", () => {
 			completed: 0,
 			running: 1,
 			pending: 0,
+			planned: 0,
 			failed: 0,
+			skipped: 0,
+			cancelled: 0,
 			steps: [{ key: "live", agent: "tester", state: "running", tokens: { input: 0, output: 0, total: 0 } }],
 			omitted: 255,
 		});
+	});
+
+	it("renders declared planned work distinctly from queued and running children", async () => {
+		const { pi, events } = fakePi();
+		serveFleet(events, () => ({
+			version: 1,
+			entries: [{
+				key: "fleet-workflow", agent: "workflow", startedAt: 0, tokens: {}, kind: "workflow",
+				workflow: {
+					total: 3, completed: 0, running: 1, pending: 1, planned: 1, failed: 0, skipped: 0, cancelled: 0,
+					steps: [
+						{ key: "implementation", agent: "worker", label: "Implement", state: "running", tokens: {} },
+						{ key: "review", agent: "reviewer", label: "Fresh review", state: "planned", tokens: {} },
+						{ key: "verification", agent: "tester", label: "Tests", state: "pending", tokens: {} },
+					],
+				},
+			}],
+		}));
+		const panel = createSubagentsPanel(pi);
+		const dispose = connect(panel);
+		try {
+			await tick();
+			await tick();
+			const output = panel.render({ width: 80, height: 5, surface: "right", theme, now: 1_000 }).join("\n");
+			assert.match(output, /◉ Implement/);
+			assert.match(output, /Fresh review.*planned/);
+			assert.match(output, /1 planned.*1 queued/);
+			assert.doesNotMatch(output, /Fresh review.*running/);
+		} finally {
+			dispose();
+		}
 	});
 
 	it("replaces a foreground placeholder with its structured fleet record", async () => {
@@ -1086,7 +1124,7 @@ describe("subagent status adapter", () => {
 					failed: 0,
 					omitted: 0,
 					steps: [
-						{ key: "tests", agent: "tester", label: "Focused tests", state: "running", tokens: {} },
+						{ key: "tests", agent: "tester", label: "Focused tests", state: "running", model: "openai/gpt-5.6-luna:high", effort: "low", tokens: {} },
 						{ key: "review", agent: "reviewer", label: "UX review", state: "pending", tokens: {} },
 						{ key: "scan", agent: "scout", label: "Repository scan", state: "completed", tokens: {} },
 					],
@@ -1101,18 +1139,89 @@ describe("subagent status adapter", () => {
 		assert.deepEqual(panel.render({ width: 36, height: 4, surface: "right", theme, now: 120_000 }), [
 			"◆ Workflow · Validation · 2m 0s",
 			"  ◉ Focused tests · tester",
-			"  ○ UX review · reviewer",
-			"  1/3 complete · ↑4.2k ↓890",
+			"    GPT-5.6 Luna · low",
+			"  1/3 complete · 1 queued · +1 more · ↑4.2k ↓890",
 		]);
+		assert.deepEqual(panel.render({ width: 36, height: 6, surface: "right", theme, now: 120_000 }), [
+			"◆ Workflow · Validation · 2m 0s",
+			"  ◉ Focused tests · tester",
+			"    GPT-5.6 Luna · low",
+			"  ○ UX review · reviewer · queued",
+			"    model pending · effort pending",
+			"  1/3 complete · 1 queued · ↑4.2k ↓890",
+		]);
+		const narrow = panel.render({ width: 80, height: 4, surface: "narrow", theme, now: 120_000 });
+		assert.equal(narrow.length, 4);
+		assert.match(narrow[1] ?? "", /Focused tests · tester · GPT-5\.6 Luna · low/);
+		assert.match(narrow[2] ?? "", /UX review · reviewer · queued · model pending · effort pending/);
+		const short = panel.render({ width: 36, height: 3, surface: "narrow", theme, now: 120_000 });
+		assert.equal(short.length, 3);
+		assert.match(short[1] ?? "", /tester · GPT-5\.6 Luna · low/);
 		assert.equal(panel.hiddenStatus?.(), "◆ 1 workflow · 2 agents");
 		assert.deepEqual(panel.render({ width: 36, height: 2, surface: "right", theme, now: 120_000 }), [
 			"◆ Workflow · Validation · 2m 0s",
-			"  1/3 complete · ↑4.2k ↓890",
+			"  1/3 complete · 1 queued · +2 more · ↑4.2k ↓890",
 		]);
 		assert.deepEqual(panel.render({ width: 36, height: 1, surface: "right", theme, now: 120_000 }), [
 			"◆ Workflow · Validation · 2m 0s",
 		]);
 		dispose();
+	});
+
+	it("refreshes each workflow child's model and effort without inheriting parent settings", async () => {
+		const { pi, events } = fakePi();
+		const step = {
+			key: "live", agent: "worker", label: "Implement the very long task description",
+			state: "running", model: "", effort: "", tokens: {},
+		};
+		serveFleet(events, () => ({
+			version: 1,
+			entries: [{
+				key: "fleet-workflow", agent: "workflow", model: "parent-model", effort: "max",
+				startedAt: 0, tokens: {}, kind: "workflow",
+				workflow: { total: 1, running: 1, steps: [step] },
+			}],
+		}));
+		const panel = createSubagentsPanel(pi);
+		const dispose = connect(panel);
+		try {
+			await tick();
+			await tick();
+			const render = (width: number, height = 4) => panel.render({ width, height, surface: "right", theme, now: 1_000 });
+			assert.match(render(39).join("\n"), /model pending · effort pending/);
+			assert.doesNotMatch(render(39).join("\n"), /parent-model|max/);
+
+			step.model = "\u001b[31manthropic/claude-opus-4-8:high\u001b[0m";
+			step.effort = "off";
+			events.emit("subagent:control-event", {});
+			await tick();
+			await tick();
+			assert.match(render(39).join("\n"), /opus-4-8 · off/);
+			assert.doesNotMatch(render(39).join("\n"), /pending|:high|parent-model/);
+
+			step.model = "openai/gpt-5.6-terra";
+			step.effort = "xhigh";
+			events.emit("subagent:control-event", {});
+			await tick();
+			await tick();
+			assert.match(render(39).join("\n"), /GPT-5\.6 Terra · xhigh/);
+
+			step.model = `provider/${"long-model-".repeat(20)}`;
+			events.emit("subagent:control-event", {});
+			await tick();
+			await tick();
+			for (const width of [21, 29, 36, 39, 55, 80]) {
+				for (const height of [3, 4]) {
+					const lines = render(width, height);
+					assert.ok(lines.length <= height);
+					const children = lines.slice(1, -1);
+					assert.ok(children.every((line) => visibleWidth(line) <= width));
+					assert.match(children.join("\n"), /xhigh/);
+				}
+			}
+		} finally {
+			dispose();
+		}
 	});
 
 	it("uses available rail height before reporting fleet overflow", async () => {

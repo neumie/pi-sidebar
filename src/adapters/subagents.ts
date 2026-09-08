@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { SidebarPanel } from "../api.ts";
 import { sanitizeSidebarLine, withRightHint } from "../render.ts";
 
@@ -25,7 +26,7 @@ interface ForegroundLaunch {
 	startedAt: number;
 }
 
-type FleetWorkflowStepState = "pending" | "running" | "completed" | "failed";
+type FleetWorkflowStepState = "planned" | "pending" | "running" | "completed" | "failed" | "skipped" | "cancelled";
 
 interface FleetWorkflowStep {
 	key: string;
@@ -46,7 +47,10 @@ interface FleetWorkflow {
 	completed: number;
 	running: number;
 	pending: number;
+	planned: number;
 	failed: number;
+	skipped: number;
+	cancelled: number;
 	steps: FleetWorkflowStep[];
 	omitted: number;
 }
@@ -74,7 +78,7 @@ type ProjectedEntry = Omit<FleetEntry, "key">;
 const MAX_FLEET_ENTRIES = 16;
 const MAX_WORKFLOW_STEPS = 16;
 const MAX_WORKFLOW_TOTAL = 256;
-const WORKFLOW_STEP_STATES = new Set<FleetWorkflowStepState>(["pending", "running", "completed", "failed"]);
+const WORKFLOW_STEP_STATES = new Set<FleetWorkflowStepState>(["planned", "pending", "running", "completed", "failed", "skipped", "cancelled"]);
 const SGR = /\x1b\[[0-?]*[ -/]*m/g;
 
 function cleanText(value: unknown, maximum: number): string | undefined {
@@ -125,24 +129,33 @@ function normalizeWorkflowProgress(workflow: Record<string, unknown>, steps: Fle
 		completed: steps.filter((step) => step.state === "completed").length,
 		running: steps.filter((step) => step.state === "running").length,
 		pending: steps.filter((step) => step.state === "pending").length,
+		planned: steps.filter((step) => step.state === "planned").length,
 		failed: steps.filter((step) => step.state === "failed").length,
+		skipped: steps.filter((step) => step.state === "skipped").length,
+		cancelled: steps.filter((step) => step.state === "cancelled").length,
 	};
 	const boundedCount = (value: unknown) => Math.min(MAX_WORKFLOW_TOTAL, safeCount(value));
 	let completed = Math.max(observed.completed, boundedCount(workflow.completed));
 	let running = Math.max(observed.running, boundedCount(workflow.running));
 	let pending = Math.max(observed.pending, boundedCount(workflow.pending));
+	let planned = Math.max(observed.planned, boundedCount(workflow.planned));
 	let failed = Math.max(observed.failed, boundedCount(workflow.failed));
-	if (completed + running + pending + failed > MAX_WORKFLOW_TOTAL) {
-		({ completed, running, pending, failed } = observed);
+	let skipped = Math.max(observed.skipped, boundedCount(workflow.skipped));
+	let cancelled = Math.max(observed.cancelled, boundedCount(workflow.cancelled));
+	if (completed + running + pending + planned + failed + skipped + cancelled > MAX_WORKFLOW_TOTAL) {
+		({ completed, running, pending, planned, failed, skipped, cancelled } = observed);
 	}
-	const accounted = completed + running + pending + failed;
+	const accounted = completed + running + pending + planned + failed + skipped + cancelled;
 	const total = Math.min(MAX_WORKFLOW_TOTAL, Math.max(steps.length, accounted, boundedCount(workflow.total)));
 	return {
 		total,
 		completed,
 		running,
 		pending,
+		planned,
 		failed,
+		skipped,
+		cancelled,
 		omitted: Math.min(total, Math.max(boundedCount(workflow.omitted), Math.max(0, total - steps.length))),
 	};
 }
@@ -229,6 +242,36 @@ function effortColor(effort: string): Parameters<Theme["fg"]>[0] {
 	if (effort === "medium") return "accent";
 	if (effort === "high" || effort === "xhigh") return "warning";
 	return effort === "max" ? "error" : "text";
+}
+
+function modelAndEffort(entry: Pick<FleetEntry, "model" | "effort">, theme: Theme, width?: number): string {
+	const model = entry.model
+		? theme.fg("accent", theme.bold(formatModel(entry.model)))
+		: theme.fg("muted", "model pending");
+	const effort = theme.fg(entry.effort ? effortColor(entry.effort) : "dim", entry.effort ?? "effort pending");
+	const divider = theme.fg("dim", " · ");
+	if (width === undefined) return `${model}${divider}${effort}`;
+	// Keep effort visible even when a long model name needs clipping.
+	const modelWidth = Math.max(0, width - visibleWidth(divider + effort));
+	return truncateToWidth(`${truncateToWidth(model, modelWidth)}${divider}${effort}`, width);
+}
+
+function workflowChildLines(step: FleetWorkflowStep, theme: Theme, width: number, rows: number): string[] {
+	const divider = theme.fg("dim", " · ");
+	const prefix = `  ${workflowStepGlyph(step.state, theme)} `;
+	const label = step.label ?? step.key;
+	const agent = step.agent !== label ? `${divider}${theme.fg("muted", step.agent)}` : "";
+	const state = step.state === "running"
+		? ""
+		: `${divider}${theme.fg(step.state === "planned" ? "dim" : step.state === "pending" ? "muted" : "text", workflowStepLabel(step.state))}`;
+	const identity = `${prefix}${label}${agent}${state}`;
+	const inline = `${identity}${divider}${modelAndEffort(step, theme)}`;
+	if (visibleWidth(inline) <= width) return [inline];
+	if (rows >= 2) return [truncateToWidth(identity, width), `    ${modelAndEffort(step, theme, Math.max(0, width - 4))}`];
+	// A short shelf still shows the child model/effort, not just its task label.
+	const agentWidth = Math.min(8, visibleWidth(step.agent), Math.max(0, width - visibleWidth(prefix) - 20));
+	const compactIdentity = agentWidth > 0 ? `${truncateToWidth(step.agent, agentWidth)}${divider}` : "";
+	return [`${prefix}${compactIdentity}${modelAndEffort(step, theme, Math.max(0, width - visibleWidth(prefix + compactIdentity)))}`];
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -323,9 +366,17 @@ function elapsed(startedAt: number, now: number): string {
 
 function workflowStepGlyph(state: FleetWorkflowStepState, theme: Theme): string {
 	if (state === "running") return theme.fg("accent", "◉");
-	if (state === "pending") return theme.fg("dim", "○");
+	if (state === "pending") return theme.fg("muted", "○");
+	if (state === "planned") return theme.fg("dim", "◇");
 	if (state === "failed") return theme.fg("error", "×");
+	if (state === "cancelled") return theme.fg("warning", "–");
+	if (state === "skipped") return theme.fg("dim", "–");
 	return theme.fg("success", "✓");
+}
+
+function workflowStepLabel(state: FleetWorkflowStepState): string {
+	if (state === "pending") return "queued";
+	return state;
 }
 
 function colorStatusLine(line: string, theme: Theme): string {
@@ -638,7 +689,7 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 			if (count <= 0) return undefined;
 			const workflows = projection.entries.filter((entry) => entry.kind === "workflow" && entry.workflow);
 			if (workflows.length === 0) return `◆ ${count} agent${count === 1 ? "" : "s"}`;
-			const workflowAgents = workflows.reduce((total, entry) => total + (entry.workflow?.running ?? 0) + (entry.workflow?.pending ?? 0), 0);
+			const workflowAgents = workflows.reduce((total, entry) => total + (entry.workflow?.running ?? 0) + (entry.workflow?.pending ?? 0) + (entry.workflow?.planned ?? 0), 0);
 			const agentCount = Math.max(0, count - workflows.length) + workflowAgents;
 			const parts = [`${workflows.length} workflow${workflows.length === 1 ? "" : "s"}`];
 			if (agentCount > 0) parts.push(`${agentCount} agent${agentCount === 1 ? "" : "s"}`);
@@ -662,34 +713,35 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 					const phase = entry.workflow.phase ? `${divider}${theme.fg("accent", entry.workflow.phase)}` : "";
 					const header = `${theme.fg("accent", "◆")} ${theme.bold("Workflow")}${phase}${divider}${theme.fg("dim", elapsed(entry.startedAt, now))}`;
 					if (budget === 1) return [header];
-					const activeSteps = entry.workflow.steps.filter((step) => step.state === "running" || step.state === "pending");
+					const activeSteps = entry.workflow.steps.filter((step) => step.state === "running" || step.state === "pending" || step.state === "planned");
 					const candidates = activeSteps.length > 0 ? activeSteps : entry.workflow.steps;
-					const childCapacity = Math.min(2, Math.max(0, budget - 2));
-					const children = candidates.slice(0, childCapacity).map((step) => {
-						const label = step.label ?? step.key;
-						const agent = step.agent !== label ? `${divider}${theme.fg("muted", step.agent)}` : "";
-						return `  ${workflowStepGlyph(step.state, theme)} ${label}${agent}`;
-					});
+					const children: string[] = [];
+					let shownChildren = 0;
+					for (const step of candidates.slice(0, 2)) {
+						const rows = budget - 2 - children.length;
+						if (rows <= 0) break;
+						children.push(...workflowChildLines(step, theme, width, rows));
+						shownChildren += 1;
+					}
 					const progress = entry.workflow.total > 0
-						? `${entry.workflow.completed}/${entry.workflow.total} complete${entry.workflow.failed > 0 ? ` · ${entry.workflow.failed} failed` : ""}`
+						? `${entry.workflow.completed}/${entry.workflow.total} complete${entry.workflow.planned > 0 ? ` · ${entry.workflow.planned} planned` : ""}${entry.workflow.pending > 0 ? ` · ${entry.workflow.pending} queued` : ""}${entry.workflow.failed > 0 ? ` · ${entry.workflow.failed} failed` : ""}${entry.workflow.cancelled > 0 ? ` · ${entry.workflow.cancelled} cancelled` : ""}${entry.workflow.skipped > 0 ? ` · ${entry.workflow.skipped} skipped` : ""}`
 						: "waiting for child launch";
-					const summary = `${theme.fg("dim", `  ${progress}`)}${divider}${usage}`;
+					const childTotal = activeSteps.length > 0 ? entry.workflow.running + entry.workflow.pending + entry.workflow.planned : entry.workflow.total;
+					const hiddenChildren = Math.max(0, childTotal - shownChildren);
+					const more = hiddenChildren > 0 ? ` · +${hiddenChildren} more` : "";
+					const summary = `${theme.fg("dim", `  ${progress}${more}`)}${divider}${usage}`;
 					return [header, ...children, summary];
 				}
 				const role = entry.role && entry.role !== entry.agent
 					? `${entry.role} · ${entry.agent}`
 					: entry.agent;
 				const identity = `${theme.fg("accent", "◆")} ${role}${divider}${theme.fg("dim", elapsed(entry.startedAt, now))}`;
-				const model = entry.model
-					? theme.fg("accent", theme.bold(formatModel(entry.model)))
-					: theme.fg("muted", "model pending");
-				const effortText = entry.effort ?? "effort pending";
-				const effort = theme.fg(entry.effort ? effortColor(entry.effort) : "dim", effortText);
+				const metadata = modelAndEffort(entry, theme);
 				const goal = theme.fg("dim", `↳ ${entry.goal ?? "Goal unavailable"}`);
 				if (surface === "narrow") {
-					return [`${identity}${divider}${model}${divider}${effort}`, `${usage}${divider}${goal}`];
+					return [`${identity}${divider}${metadata}`, `${usage}${divider}${goal}`];
 				}
-				return [identity, [model, effort, usage].join(divider), goal];
+				return [identity, `${metadata}${divider}${usage}`, goal];
 			};
 			for (const entry of projection.entries) {
 				const reserveOverflow = projection.totalActive > represented + 1 ? 1 : 0;
