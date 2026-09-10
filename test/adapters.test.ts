@@ -25,6 +25,8 @@ import {
 	createSubagentsPanel,
 	parseSubagentFleet,
 	parseSubagentStatusText,
+	parseWorkflowChildren,
+	parseAsyncSnapshot,
 } from "../src/adapters/subagents.ts";
 
 class EventBus {
@@ -757,6 +759,283 @@ describe("degraded integrations adapter", () => {
 });
 
 describe("subagent status adapter", () => {
+	it("parses native workflow details with exact identity and honest inventory", () => {
+		const detail = parseWorkflowChildren(
+			{
+				version: 1,
+				parentToolCallId: "tool-1",
+				workflowRunId: "run-1",
+				inventoryComplete: false,
+				workflowState: "running",
+				children: [
+					{
+						childId: "x".repeat(128),
+						agent: "worker",
+						model: "openai/model",
+						thinking: "high",
+						state: "running",
+						activity: { inputTokens: 4, outputTokens: 5 },
+					},
+				],
+			},
+			"run-1",
+			"tool-1",
+		);
+		assert.equal(detail?.children[0]?.childId.length, 128);
+		assert.equal(detail?.inventoryComplete, false);
+		assert.equal(detail?.children[0]?.activity?.outputTokens, 5);
+		assert.equal(
+			parseWorkflowChildren(
+				{
+					version: 1,
+					parentToolCallId: "other",
+					workflowRunId: "run-1",
+					inventoryComplete: true,
+					workflowState: "running",
+					children: [],
+				},
+				"run-1",
+				"tool-1",
+			),
+			undefined,
+		);
+		assert.equal(
+			parseWorkflowChildren({
+				version: 1,
+				parentToolCallId: "tool-1",
+				workflowRunId: "run-1",
+				inventoryComplete: true,
+				workflowState: "running",
+				children: Array.from({ length: 33 }, (_, i) => ({
+					childId: `child-${i}`,
+					state: "running",
+				})),
+			})?.inventoryComplete,
+			false,
+		);
+		assert.equal(
+			parseWorkflowChildren(
+				new Proxy(
+					{},
+					{
+						get() {
+							throw new Error("hostile");
+						},
+					},
+				),
+			),
+			undefined,
+		);
+		assert.deepEqual(
+			parseAsyncSnapshot({
+				kind: "pi-subagents.async-status-snapshot",
+				version: 1,
+				runs: [
+					{
+						id: "run-1",
+						kind: "workflow",
+						state: "queued",
+						label: "Validation",
+					},
+					{ id: "done", kind: "workflow", state: "complete", label: "Done" },
+					{
+						id: "partial",
+						kind: "workflow",
+						state: "partial",
+						label: "Partial",
+					},
+					{
+						id: "rejected",
+						kind: "workflow",
+						state: "rejected",
+						label: "Rejected",
+					},
+					{ id: "bad", kind: "subagent", state: "running", label: "hidden" },
+				],
+			}),
+			[
+				{ id: "run-1", kind: "workflow", state: "queued", label: "Validation" },
+				{ id: "done", kind: "workflow", state: "complete", label: "Done" },
+				{ id: "partial", kind: "workflow", state: "partial", label: "Partial" },
+				{
+					id: "rejected",
+					kind: "workflow",
+					state: "rejected",
+					label: "Rejected",
+				},
+			],
+		);
+		const longId = "界".repeat(1_365);
+		assert.equal(
+			parseWorkflowChildren({
+				version: 1,
+				parentToolCallId: longId,
+				workflowRunId: longId,
+				inventoryComplete: true,
+				workflowState: "completed",
+				children: [],
+			})?.workflowRunId,
+			longId,
+		);
+		assert.equal(
+			parseWorkflowChildren({
+				version: 1,
+				workflowRunId: "run-1",
+				inventoryComplete: true,
+				workflowState: "completed",
+				children: [],
+			}),
+			undefined,
+		);
+	});
+	it("keeps foreground ownership separate and retains at most eight details", async () => {
+		const { pi, events, emitLifecycle } = fakePi();
+		const asyncIds = ["async-a", "async-b"];
+		events.on("subagents:rpc:v1:request", (payload) => {
+			const request = payload as {
+				requestId: string;
+				method: string;
+				params?: { runId?: string };
+			};
+			queueMicrotask(() =>
+				events.emit(`subagents:rpc:v1:reply:${request.requestId}`, {
+					version: 1,
+					requestId: request.requestId,
+					method: request.method,
+					success: true,
+					data:
+						request.method === "ping"
+							? { version: 1, methods: ["ping", "status"] }
+							: {
+									asyncSnapshot: {
+										kind: "pi-subagents.async-status-snapshot",
+										version: 1,
+										runs: asyncIds.map((id) => ({
+											id,
+											kind: "workflow",
+											state: "running",
+											label: id,
+										})),
+									},
+									details: request.params?.runId
+										? {
+												mode: "workflow",
+												runId: request.params.runId,
+												workflowChildren: {
+													version: 1,
+													parentToolCallId: `async-${request.params.runId}`,
+													workflowRunId: request.params.runId,
+													inventoryComplete: true,
+													workflowState: "running",
+													children: [],
+												},
+											}
+										: undefined,
+								},
+				}),
+			);
+		});
+		const panel = createSubagentsPanel(pi);
+		const dispose = connect(panel);
+		for (const id of Array.from({ length: 8 }, (_, index) => `fg-${index}`)) {
+			emitLifecycle("tool_execution_start", {
+				toolName: "subagent",
+				toolCallId: id,
+				args: { agent: "worker", task: id },
+			});
+			emitLifecycle("tool_execution_update", {
+				toolName: "subagent",
+				toolCallId: id,
+				partialResult: {
+					details: {
+						mode: "workflow",
+						runId: id,
+						workflowChildren: {
+							version: 1,
+							parentToolCallId: id,
+							workflowRunId: id,
+							inventoryComplete: true,
+							workflowState: "running",
+							children: [],
+						},
+					},
+				},
+			});
+		}
+		await tick();
+		await tick();
+		assert.match(panel.hiddenStatus?.() ?? "", /8 workflow details/);
+		assert.ok(
+			panel.render({ width: 60, height: 5, theme, now: Date.now() }).length > 0,
+		);
+		dispose();
+	});
+
+	it("limits native workflow detail reconciliation to two requests per refresh", async () => {
+		const { pi, events } = fakePi();
+		const targeted: string[] = [];
+		events.on("subagents:rpc:v1:request", (payload) => {
+			const request = payload as {
+				requestId: string;
+				method: string;
+				params?: { runId?: string };
+			};
+			if (request.params?.runId) targeted.push(request.params.runId);
+			queueMicrotask(() =>
+				events.emit(`subagents:rpc:v1:reply:${request.requestId}`, {
+					version: 1,
+					requestId: request.requestId,
+					method: request.method,
+					success: true,
+					data:
+						request.method === "ping"
+							? {
+									version: 1,
+									methods: ["ping", "status"],
+									capabilities: { fleetStatus: { version: 1 } },
+								}
+							: {
+									asyncSnapshot: {
+										kind: "pi-subagents.async-status-snapshot",
+										version: 1,
+										runs: ["a", "b", "c"].map((id) => ({
+											id,
+											kind: "workflow",
+											state: "running",
+											label: id,
+										})),
+									},
+									details: request.params?.runId
+										? {
+												mode: "workflow",
+												runId: request.params.runId,
+												workflowChildren: {
+													version: 1,
+													parentToolCallId: `async-${request.params.runId}`,
+													workflowRunId: request.params.runId,
+													inventoryComplete: false,
+													workflowState: "running",
+													children: [],
+												},
+											}
+										: undefined,
+								},
+				}),
+			);
+		});
+		const panel = createSubagentsPanel(pi);
+		const dispose = connect(panel);
+		await tick();
+		await tick();
+		assert.deepEqual(targeted, ["a", "b"]);
+		await new Promise((resolve) => setTimeout(resolve, 2_050));
+		events.emit("subagent:async-started", {});
+		await tick();
+		await tick();
+		assert.deepEqual(targeted, ["a", "b", "c", "a"]);
+		dispose();
+	});
+
 	function serveFleet(
 		events: EventBus,
 		fleet: () => unknown,
@@ -765,15 +1044,22 @@ describe("subagent status adapter", () => {
 		events.on("subagents:rpc:v1:request", (payload) => {
 			if (!shouldReply()) return;
 			const request = payload as { requestId: string; method: string };
-			queueMicrotask(() => events.emit(`subagents:rpc:v1:reply:${request.requestId}`, {
-				version: 1,
-				requestId: request.requestId,
-				method: request.method,
-				success: true,
-				data: request.method === "ping"
-					? { version: 1, methods: ["ping", "status"], capabilities: { fleetStatus: { version: 1 } } }
-					: { text: "Active async runs", fleet: fleet() },
-			}));
+			queueMicrotask(() =>
+				events.emit(`subagents:rpc:v1:reply:${request.requestId}`, {
+					version: 1,
+					requestId: request.requestId,
+					method: request.method,
+					success: true,
+					data:
+						request.method === "ping"
+							? {
+									version: 1,
+									methods: ["ping", "status"],
+									capabilities: { fleetStatus: { version: 1 } },
+								}
+							: { text: "Active async runs", fleet: fleet() },
+				}),
+			);
 		});
 	}
 
@@ -823,134 +1109,34 @@ describe("subagent status adapter", () => {
 			totalActive: 1,
 		});
 		assert.equal(parseSubagentFleet({ version: 2, entries: [] }), undefined);
-		assert.equal(parseSubagentFleet(new Proxy({}, { get() { throw new Error("hostile"); } })), undefined);
-		assert.deepEqual(parseSubagentFleet({
-			version: 1,
-			totalActive: 4,
-			entries: [{ key: "bad-time", agent: "worker", startedAt: Number.MAX_SAFE_INTEGER + 1, tokens: {} }],
-		}), { entries: [], totalActive: 4 });
-	});
-
-	it("parses additive workflow grouping while keeping malformed details fail-open", () => {
-		assert.deepEqual(parseSubagentFleet({
-			version: 1,
-			totalActive: 1,
-			entries: [{
-				key: "fleet-1",
-				agent: "workflow",
-				startedAt: 100,
-				tokens: { input: 4_200, output: 890, total: 5_090 },
-				kind: "workflow",
-				workflow: {
-					phase: "\u001b[31mValidation\u001b[0m",
-					total: 3,
-					completed: 1,
-					running: 1,
-					pending: 1,
-					failed: 0,
-					omitted: 0,
-					steps: [
-						{ key: "tests", agent: "tester", label: "Focused\ntests", phase: "Validation", state: "running", startedAt: 110, tokens: { input: 2_000, output: 400, total: 2_400 } },
-						{ key: "review", agent: "reviewer", label: "UX review", phase: "Validation", state: "pending", tokens: {} },
-						{ key: "scan", agent: "scout", state: "completed", tokens: {} },
-					],
-				},
-			}],
-		}), {
-			entries: [{
-				key: "fleet-1",
-				agent: "workflow",
-				startedAt: 100,
-				tokens: { input: 4_200, output: 890, total: 5_090 },
-				kind: "workflow",
-				workflow: {
-					phase: "Validation",
-					total: 3,
-					completed: 1,
-					running: 1,
-					pending: 1,
-					planned: 0,
-					failed: 0,
-					skipped: 0,
-					cancelled: 0,
-					omitted: 0,
-					steps: [
-						{ key: "tests", agent: "tester", label: "Focused tests", phase: "Validation", state: "running", startedAt: 110, tokens: { input: 2_000, output: 400, total: 2_400 } },
-						{ key: "review", agent: "reviewer", label: "UX review", phase: "Validation", state: "pending", tokens: { input: 0, output: 0, total: 0 } },
-						{ key: "scan", agent: "scout", state: "completed", tokens: { input: 0, output: 0, total: 0 } },
-					],
-				},
-			}],
-			totalActive: 1,
-		});
-		assert.deepEqual(parseSubagentFleet({
-			version: 1,
-			entries: [{ key: "fleet-1", agent: "workflow", startedAt: 100, tokens: {}, kind: "workflow", workflow: { steps: "bad" } }],
-		}), {
-			entries: [{ key: "fleet-1", agent: "workflow", startedAt: 100, tokens: { input: 0, output: 0, total: 0 } }],
-			totalActive: 1,
-		});
-		const normalized = parseSubagentFleet({
-			version: 1,
-			entries: [{
-				key: "fleet-hostile",
-				agent: "workflow",
-				startedAt: 100,
-				tokens: {},
-				kind: "workflow",
-				workflow: {
-					total: Number.MAX_SAFE_INTEGER,
-					completed: Number.MAX_SAFE_INTEGER,
-					running: Number.MAX_SAFE_INTEGER,
-					pending: Number.MAX_SAFE_INTEGER,
-					failed: Number.MAX_SAFE_INTEGER,
-					steps: [{ key: "live", agent: "tester", state: "running", tokens: {} }],
-				},
-			}],
-		}) as any;
-		assert.deepEqual(normalized.entries[0].workflow, {
-			total: 256,
-			completed: 0,
-			running: 1,
-			pending: 0,
-			planned: 0,
-			failed: 0,
-			skipped: 0,
-			cancelled: 0,
-			steps: [{ key: "live", agent: "tester", state: "running", tokens: { input: 0, output: 0, total: 0 } }],
-			omitted: 255,
-		});
-	});
-
-	it("renders declared planned work distinctly from queued and running children", async () => {
-		const { pi, events } = fakePi();
-		serveFleet(events, () => ({
-			version: 1,
-			entries: [{
-				key: "fleet-workflow", agent: "workflow", startedAt: 0, tokens: {}, kind: "workflow",
-				workflow: {
-					total: 3, completed: 0, running: 1, pending: 1, planned: 1, failed: 0, skipped: 0, cancelled: 0,
-					steps: [
-						{ key: "implementation", agent: "worker", label: "Implement", state: "running", tokens: {} },
-						{ key: "review", agent: "reviewer", label: "Fresh review", state: "planned", tokens: {} },
-						{ key: "verification", agent: "tester", label: "Tests", state: "pending", tokens: {} },
-					],
-				},
-			}],
-		}));
-		const panel = createSubagentsPanel(pi);
-		const dispose = connect(panel);
-		try {
-			await tick();
-			await tick();
-			const output = panel.render({ width: 80, height: 5, surface: "right", theme, now: 1_000 }).join("\n");
-			assert.match(output, /◉ Implement/);
-			assert.match(output, /Fresh review.*planned/);
-			assert.match(output, /1 planned.*1 queued/);
-			assert.doesNotMatch(output, /Fresh review.*running/);
-		} finally {
-			dispose();
-		}
+		assert.equal(
+			parseSubagentFleet(
+				new Proxy(
+					{},
+					{
+						get() {
+							throw new Error("hostile");
+						},
+					},
+				),
+			),
+			undefined,
+		);
+		assert.deepEqual(
+			parseSubagentFleet({
+				version: 1,
+				totalActive: 4,
+				entries: [
+					{
+						key: "bad-time",
+						agent: "worker",
+						startedAt: Number.MAX_SAFE_INTEGER + 1,
+						tokens: {},
+					},
+				],
+			}),
+			{ entries: [], totalActive: 4 },
+		);
 	});
 
 	it("replaces a foreground placeholder with its structured fleet record", async () => {
@@ -1000,7 +1186,13 @@ describe("subagent status adapter", () => {
 		const dispose = connect(panel);
 		await tick();
 		await tick();
-		const lines = panel.render({ width: 80, height: 5, surface: "narrow", theme, now: 1_000 });
+		const lines = panel.render({
+			width: 80,
+			height: 5,
+			surface: "narrow",
+			theme,
+			now: 1_000,
+		});
 		assert.equal(lines.length, 2);
 		assert.equal(lines.filter((line) => line.includes("reviewer")).length, 1);
 		assert.equal(
@@ -1010,218 +1202,6 @@ describe("subagent status adapter", () => {
 		assert.match(lines.join("\n"), /review · reviewer.*opus-4-8.*high/);
 		assert.match(lines.join("\n"), /↑12 ↓34.*Review the diff/);
 		dispose();
-	});
-
-	it("shows and reconciles a workflowScript foreground placeholder", async () => {
-		const { pi, events, emitLifecycle } = fakePi();
-		serveFleet(events, () => ({
-			version: 1,
-			totalActive: 1,
-			omitted: 0,
-			entries: [{
-				key: "fleet-workflow",
-				agent: "workflow",
-				startedAt: 100,
-				tokens: { input: 12, output: 3, total: 15 },
-				kind: "workflow",
-				workflow: {
-					total: 1,
-					completed: 0,
-					running: 1,
-					pending: 0,
-					failed: 0,
-					steps: [{ key: "tests", agent: "tester", label: "Focused tests", state: "running", tokens: {} }],
-					omitted: 0,
-				},
-			}],
-		}));
-		const panel = createSubagentsPanel(pi);
-		const dispose = connect(panel);
-		emitLifecycle("tool_execution_start", {
-			toolName: "subagent",
-			toolCallId: "local-workflow",
-			args: { workflowScript: "return runs.run('tests', { agent: 'tester', task: 'Run focused tests' })" },
-		});
-		assert.match(panel.render({ width: 40, height: 3, surface: "right", theme, now: 1_000 }).join("\n"), /◆ workflow/);
-		await tick();
-		await tick();
-		const lines = panel.render({ width: 40, height: 4, surface: "right", theme, now: 1_000 });
-		assert.equal(lines.filter((line) => line.includes("Workflow")).length, 1);
-		assert.match(lines.join("\n"), /Focused tests · tester/);
-		assert.match(lines.join("\n"), /↑12 ↓3/);
-		dispose();
-	});
-
-	it("shows two narrow children, dedicated rail goals, and bounded overflow", async () => {
-		const { pi, events } = fakePi();
-		serveFleet(events, () => ({
-			version: 1,
-			totalActive: 3,
-			omitted: 1,
-			entries: [
-				{
-					key: "fleet-1", agent: "worker", model: "openai/gpt-5.6-terra:high", effort: "high",
-					startedAt: 0, tokens: { input: 12_340, output: 567, total: 12_907 }, goal: "Fix slash completion",
-				},
-				{
-					key: "fleet-2", agent: "reviewer", model: "anthropic/claude-opus-4-8:medium", effort: "medium",
-					startedAt: 30_000, tokens: { input: 4_200, output: 890, total: 5_090 }, goal: "Review protocol safety",
-				},
-			],
-		}));
-		const panel = createSubagentsPanel(pi);
-		assert.equal(panel.refreshIntervalMs?.(), undefined);
-		const dispose = connect(panel);
-		await tick();
-		await tick();
-
-		assert.equal(panel.refreshIntervalMs?.(), 1_000);
-		const narrow = panel.render({ width: 75, height: 5, surface: "narrow", theme, now: 120_000 });
-		assert.equal(narrow.length, 5);
-		assert.match(narrow.join("\n"), /^◆ worker.*2m 0s.*GPT-5\.6 Terra.*high/m);
-		assert.match(narrow.join("\n"), /↑12k ↓567.*Fix slash completion/);
-		assert.equal(panel.hiddenStatus?.(), "◆ 3 agents");
-		assert.match(narrow.join("\n"), /reviewer.*1m 30s.*opus-4-8.*medium/);
-		assert.match(narrow.join("\n"), /↑4\.2k ↓890.*Review protocol safety/);
-		assert.equal(
-			narrow.at(-1),
-			`+1 more${" ".repeat(52)}/subagents-fleet`,
-		);
-
-		const rail = panel.render({ width: 36, height: 7, surface: "right", theme, now: 120_000 });
-		assert.equal(rail.length, 7);
-		assert.equal(rail.some((line) => line === "↳ Fix slash completion"), true);
-		assert.equal(rail.some((line) => line === "↳ Review protocol safety"), true);
-		assert.equal(
-			rail.at(-1),
-			`+1 more${" ".repeat(13)}/subagents-fleet`,
-		);
-		assert.equal(
-			panel.render({ width: 22, height: 1, surface: "right", theme, now: 120_000 }).at(-1),
-			"+3 more",
-		);
-		dispose();
-	});
-
-	it("groups workflow phase, children, progress, and usage in bounded rows", async () => {
-		const { pi, events } = fakePi();
-		serveFleet(events, () => ({
-			version: 1,
-			totalActive: 1,
-			omitted: 0,
-			entries: [{
-				key: "fleet-workflow",
-				agent: "workflow",
-				startedAt: 0,
-				tokens: { input: 4_200, output: 890, total: 5_090 },
-				kind: "workflow",
-				workflow: {
-					phase: "Validation",
-					total: 3,
-					completed: 1,
-					running: 1,
-					pending: 1,
-					failed: 0,
-					omitted: 0,
-					steps: [
-						{ key: "tests", agent: "tester", label: "Focused tests", state: "running", model: "openai/gpt-5.6-luna:high", effort: "low", tokens: {} },
-						{ key: "review", agent: "reviewer", label: "UX review", state: "pending", tokens: {} },
-						{ key: "scan", agent: "scout", label: "Repository scan", state: "completed", tokens: {} },
-					],
-				},
-			}],
-		}));
-		const panel = createSubagentsPanel(pi);
-		const dispose = connect(panel);
-		await tick();
-		await tick();
-
-		assert.deepEqual(panel.render({ width: 36, height: 4, surface: "right", theme, now: 120_000 }), [
-			"◆ Workflow · Validation · 2m 0s",
-			"  ◉ Focused tests · tester",
-			"    GPT-5.6 Luna · low",
-			"  1/3 complete · 1 queued · +1 more · ↑4.2k ↓890",
-		]);
-		assert.deepEqual(panel.render({ width: 36, height: 6, surface: "right", theme, now: 120_000 }), [
-			"◆ Workflow · Validation · 2m 0s",
-			"  ◉ Focused tests · tester",
-			"    GPT-5.6 Luna · low",
-			"  ○ UX review · reviewer · queued",
-			"    model pending · effort pending",
-			"  1/3 complete · 1 queued · ↑4.2k ↓890",
-		]);
-		const narrow = panel.render({ width: 80, height: 4, surface: "narrow", theme, now: 120_000 });
-		assert.equal(narrow.length, 4);
-		assert.match(narrow[1] ?? "", /Focused tests · tester · GPT-5\.6 Luna · low/);
-		assert.match(narrow[2] ?? "", /UX review · reviewer · queued · model pending · effort pending/);
-		const short = panel.render({ width: 36, height: 3, surface: "narrow", theme, now: 120_000 });
-		assert.equal(short.length, 3);
-		assert.match(short[1] ?? "", /tester · GPT-5\.6 Luna · low/);
-		assert.equal(panel.hiddenStatus?.(), "◆ 1 workflow · 2 agents");
-		assert.deepEqual(panel.render({ width: 36, height: 2, surface: "right", theme, now: 120_000 }), [
-			"◆ Workflow · Validation · 2m 0s",
-			"  1/3 complete · 1 queued · +2 more · ↑4.2k ↓890",
-		]);
-		assert.deepEqual(panel.render({ width: 36, height: 1, surface: "right", theme, now: 120_000 }), [
-			"◆ Workflow · Validation · 2m 0s",
-		]);
-		dispose();
-	});
-
-	it("refreshes each workflow child's model and effort without inheriting parent settings", async () => {
-		const { pi, events } = fakePi();
-		const step = {
-			key: "live", agent: "worker", label: "Implement the very long task description",
-			state: "running", model: "", effort: "", tokens: {},
-		};
-		serveFleet(events, () => ({
-			version: 1,
-			entries: [{
-				key: "fleet-workflow", agent: "workflow", model: "parent-model", effort: "max",
-				startedAt: 0, tokens: {}, kind: "workflow",
-				workflow: { total: 1, running: 1, steps: [step] },
-			}],
-		}));
-		const panel = createSubagentsPanel(pi);
-		const dispose = connect(panel);
-		try {
-			await tick();
-			await tick();
-			const render = (width: number, height = 4) => panel.render({ width, height, surface: "right", theme, now: 1_000 });
-			assert.match(render(39).join("\n"), /model pending · effort pending/);
-			assert.doesNotMatch(render(39).join("\n"), /parent-model|max/);
-
-			step.model = "\u001b[31manthropic/claude-opus-4-8:high\u001b[0m";
-			step.effort = "off";
-			events.emit("subagent:control-event", {});
-			await tick();
-			await tick();
-			assert.match(render(39).join("\n"), /opus-4-8 · off/);
-			assert.doesNotMatch(render(39).join("\n"), /pending|:high|parent-model/);
-
-			step.model = "openai/gpt-5.6-terra";
-			step.effort = "xhigh";
-			events.emit("subagent:control-event", {});
-			await tick();
-			await tick();
-			assert.match(render(39).join("\n"), /GPT-5\.6 Terra · xhigh/);
-
-			step.model = `provider/${"long-model-".repeat(20)}`;
-			events.emit("subagent:control-event", {});
-			await tick();
-			await tick();
-			for (const width of [21, 29, 36, 39, 55, 80]) {
-				for (const height of [3, 4]) {
-					const lines = render(width, height);
-					assert.ok(lines.length <= height);
-					const children = lines.slice(1, -1);
-					assert.ok(children.every((line) => visibleWidth(line) <= width));
-					assert.match(children.join("\n"), /xhigh/);
-				}
-			}
-		} finally {
-			dispose();
-		}
 	});
 
 	it("uses available rail height before reporting fleet overflow", async () => {
@@ -1246,10 +1226,19 @@ describe("subagent status adapter", () => {
 		await tick();
 		await tick();
 
-		const rail = panel.render({ width: 36, height: 24, surface: "right", theme, now: 120_000 });
+		const rail = panel.render({
+			width: 36,
+			height: 24,
+			surface: "right",
+			theme,
+			now: 120_000,
+		});
 		assert.equal(rail.filter((line) => line.startsWith("◆ worker-")).length, 8);
 		assert.equal(rail.length, 24);
-		assert.equal(rail.some((line) => /more/.test(line)), false);
+		assert.equal(
+			rail.some((line) => /more/.test(line)),
+			false,
+		);
 		dispose();
 	});
 
@@ -1257,12 +1246,16 @@ describe("subagent status adapter", () => {
 		const { pi, events, emitLifecycle } = fakePi();
 		let reply = true;
 		let remoteEntries: Array<Record<string, unknown>> = [];
-		serveFleet(events, () => ({
-			version: 1,
-			totalActive: remoteEntries.length,
-			omitted: 0,
-			entries: remoteEntries,
-		}), () => reply);
+		serveFleet(
+			events,
+			() => ({
+				version: 1,
+				totalActive: remoteEntries.length,
+				omitted: 0,
+				entries: remoteEntries,
+			}),
+			() => reply,
+		);
 		const panel = createSubagentsPanel(pi);
 		const firstDisconnect = connect(panel);
 		await tick();
@@ -1272,33 +1265,74 @@ describe("subagent status adapter", () => {
 			emitLifecycle("tool_execution_start", {
 				toolName: "subagent",
 				toolCallId,
-				args: { agent: "reviewer", task: "Review the diff", model: "anthropic/claude-opus-4-8", thinking: "high" },
+				args: {
+					agent: "reviewer",
+					task: "Review the diff",
+					model: "anthropic/claude-opus-4-8",
+					thinking: "high",
+				},
 			});
 		}
-		const immediate = panel.render({ width: 75, height: 5, surface: "narrow", theme, now: Date.now() });
+		const immediate = panel.render({
+			width: 75,
+			height: 5,
+			surface: "narrow",
+			theme,
+			now: Date.now(),
+		});
 		assert.equal(immediate.filter((line) => /reviewer/.test(line)).length, 2);
 
-		remoteEntries = [{
-			key: "fleet-1", agent: "reviewer", model: "anthropic/claude-opus-4-8", effort: "high",
-			startedAt: Date.now(), tokens: { input: 1, output: 2, total: 3 }, goal: "Review the diff",
-		}];
+		remoteEntries = [
+			{
+				key: "fleet-1",
+				agent: "reviewer",
+				model: "anthropic/claude-opus-4-8",
+				effort: "high",
+				startedAt: Date.now(),
+				tokens: { input: 1, output: 2, total: 3 },
+				goal: "Review the diff",
+			},
+		];
 		events.emit("subagent:async-started", {});
 		await tick();
 		await tick();
-		const reconciled = panel.render({ width: 75, height: 5, surface: "narrow", theme, now: Date.now() });
+		const reconciled = panel.render({
+			width: 75,
+			height: 5,
+			surface: "narrow",
+			theme,
+			now: Date.now(),
+		});
 		assert.equal(reconciled.filter((line) => /reviewer/.test(line)).length, 2);
-		assert.equal(reconciled.some((line) => /more/.test(line)), false);
+		assert.equal(
+			reconciled.some((line) => /more/.test(line)),
+			false,
+		);
 
 		firstDisconnect();
 		reply = false;
 		const secondDisconnect = connect(panel);
-		assert.deepEqual(panel.render({ width: 75, height: 5, surface: "narrow", theme, now: Date.now() }), []);
+		assert.deepEqual(
+			panel.render({
+				width: 75,
+				height: 5,
+				surface: "narrow",
+				theme,
+				now: Date.now(),
+			}),
+			[],
+		);
 		secondDisconnect();
 	});
 
-	it("shows explicit pending telemetry and zero split usage for a new local child", async () => {
+	it("shows explicit pending telemetry when usage is unavailable for a new local child", async () => {
 		const { pi, events, emitLifecycle } = fakePi();
-		serveFleet(events, () => ({ version: 1, totalActive: 0, omitted: 0, entries: [] }));
+		serveFleet(events, () => ({
+			version: 1,
+			totalActive: 0,
+			omitted: 0,
+			entries: [],
+		}));
 		const panel = createSubagentsPanel(pi);
 		const dispose = connect(panel);
 		await tick();
@@ -1308,8 +1342,17 @@ describe("subagent status adapter", () => {
 			toolCallId: "pending-child",
 			args: { agent: "worker", task: "Start the task" },
 		});
-		const lines = panel.render({ width: 36, height: 3, surface: "right", theme, now: Date.now() });
-		assert.match(lines.join("\n"), /worker.*model pending.*effort pending.*↑0 ↓0.*Start the task/s);
+		const lines = panel.render({
+			width: 36,
+			height: 3,
+			surface: "right",
+			theme,
+			now: Date.now(),
+		});
+		assert.match(
+			lines.join("\n"),
+			/worker.*model pending.*effort pending.*↑unavailable ↓unavailable.*Start the task/s,
+		);
 		dispose();
 	});
 

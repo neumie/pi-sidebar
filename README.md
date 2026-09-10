@@ -10,10 +10,12 @@ Pi transcript and tools                         │
                                                 │  Verify compatibility
                                                 │
                                                 │ Subagents
-                                                │  ◆ Workflow · Validation · 18s
-                                                │    ◉ focused tests · tester
+                                                │  ◇ Workflow detail · running
+                                                │    ◉ tester          running
                                                 │      GPT-5.6 Luna · low
-                                                │    1/3 complete · ↑4.2k ↓890
+                                                │      ↑4.2k ↓890
+                                                │    1 observed
+                                                │    inventory incomplete
                                                 │
 Pi editor and session footer                    │ Background jobs
                                                 │  ▸ Typecheck · 7s
@@ -25,12 +27,12 @@ Pi conversation
 › editor
 Pi session footer
 ────────────────────────────────────────────────────
- ◆ Workflow · Validation · 18s
-   1/3 complete · ↑4.2k ↓890
+ ◇ Workflow detail · running
+   1 detail clipped    /subagents-fleet
  ▸ Typecheck · 7s
 
 Hidden surface
-Pi session footer      ◆ 1 workflow · 2 agents · ▸ 3 jobs
+Pi session footer      ◆ 2 fleet · ◇ 1 workflow detail · ▸ 3 jobs
 ```
 
 ## Features
@@ -51,6 +53,8 @@ Pi session footer      ◆ 1 workflow · 2 agents · ▸ 3 jobs
 - Reload-safe, token-safe panel registration.
 
 ## Install
+
+The official-upstream migration described here is an unreleased review-branch change, not yet part of the default installation below. Publication is not installation or activation.
 
 ```bash
 pi install git:github.com/neumie/pi-sidebar
@@ -111,7 +115,7 @@ The adapter requests and consumes `@neumie/pi-subagents-goal:v1:status`. A live 
 
 The adapter listens for `subagents:rpc:v1:ready`, sends versioned `ping` and `status` requests, and uses async lifecycle events for immediate refresh. It polls only after the RPC is available, reconciling every two seconds while active and every 30 seconds while idle. Missing or incompatible subagent installations simply hide the panel.
 
-Foreground `subagent` tool calls, including `workflowScript` launches, are shown immediately from Pi's public tool lifecycle and reconciled with the first structured snapshot. When the peer advertises `fleetStatus` v1, each active child shows its role and elapsed time, footer-style model/effort and `↑input ↓output` usage, plus its caller-facing goal. Peers with the additive `workflowGroups` v1 capability render each `workflowScript` run as one grouped card: workflow phase and elapsed time, up to two active public child labels/agents with each child's reported model and effort, completion/failure counts, and aggregate usage. Producers that also advertise `workflowPlans` v1 can show caller-declared future steps as `planned` (◇), distinct from launched-but-`queued` (○) and running (◉) work; matching launched keys replace rather than duplicate their planned row. The sidebar never infers steps from arbitrary workflow JavaScript, so conditional or dynamic work remains absent until the producer actually observes it. Model/effort stay inline when they fit, otherwise use an indented detail row; short surfaces prioritize model/effort over the long task label. Missing values show `model pending` / `effort pending`, never the parent workflow's settings. Hidden children are counted in the progress row. The parser bounds malformed counters and the card adapts down to a header-only row on short surfaces instead of disappearing into false overflow. The bounded RPC snapshot carries an omitted count so narrow surfaces can report hidden groups without exposing run IDs. Overflow rows right-align `/subagents-fleet` when it fits, opening the package's live inspection-only fleet even when its native FleetView widget is disabled. Older peers degrade to ordinary fleet entries or an ID-free active count; no private modules are imported.
+Foreground `subagent` tool calls are shown from Pi's public tool lifecycle and correlated by exact tool-call/workflow identities. When the peer advertises `fleetStatus` v1, the bounded flat **fleet** roster uses opaque keys only for reconciliation; its `totalActive` and `omitted` values are never combined with workflow details. Official upstream workflow runs form a separate **workflow detail** view: the adapter discovers public run IDs from `asyncSnapshot`, then requests at most two targeted statuses in any two-second cadence, rotating across the full validated discovery inventory (defensive cap: 64 run identities). Only eight detail cards are retained across both acquisition paths, with foreground priority. Live foreground starts are tracked independently of ordinary launch placeholders, and a call binds to one exact run until it ends. Reconciliation cannot replace live foreground state; reconnect and teardown fence pending replies. Child model/thinking and live split usage are rendered only when supplied by the public `workflowChildren` DTO. The `seen` clock uses a stable first-observation time while retained, not a claimed execution start. Missing values are unavailable; incomplete inventories say `observed`/`inventory incomplete`, and no planned rows or per-workflow totals are invented. Queued is not relabeled planned; paused, detached, rejected, stopped and failed states remain distinct. IDs, paths, arguments, transcripts and raw status text never render. Fleet and workflow-detail counts are labeled separately and never added together, because they can overlap. Short panels preserve both categories through reserved overflow rows or a combined one-row summary, with `/subagents-fleet` when it fits. Global async omissions are separate from individual child inventory completeness. Older peers degrade to ordinary fleet entries or an ID-free active count; no private modules are imported.
 
 ### pi-background-jobs
 
@@ -190,6 +194,8 @@ Panel rules:
 - A stale disposer cannot remove a newer registration with the same id.
 
 ## Compatibility
+
+Migration verification includes the actual Pi SDK 0.85.1 and official `nicobailon/pi-subagents` 0.67.0: native workflow updates reached the production panel, rendered with the host theme/TUI helpers, and disappeared on tool end. This was an isolated print-mode session with an explicit panel connection, a bounded fake model stream, and a deliberately nonexistent child agent—not an interactive screen or real-model test. Existing peer ranges are unchanged pending a separate host-compatibility decision.
 
 Pi 0.83.0 does not expose a native column-reserving side-panel API. In `auto` mode this package uses the least invasive working technique found in current community packages:
 

@@ -13,6 +13,26 @@ const REFRESH_EVENTS = [
 	"subagent:foreground-complete",
 	"subagent:control-event",
 ] as const;
+const MAX_WORKFLOW_DETAILS = 8;
+const MAX_TARGETED_STATUS_PER_REFRESH = 2;
+const WORKFLOW_STATES = new Set([
+	"queued",
+	"running",
+	"completed",
+	"failed",
+	"paused",
+	"stopped",
+]);
+const ASYNC_SNAPSHOT_STATES = new Set([
+	"queued",
+	"running",
+	"complete",
+	"failed",
+	"partial",
+	"paused",
+	"stopped",
+	"rejected",
+]);
 const RPC_TIMEOUT_MS = 1_500;
 const ACTIVE_POLL_MS = 2_000;
 const IDLE_POLL_MS = 30_000;
@@ -21,38 +41,9 @@ const ELAPSED_REFRESH_MS = 1_000;
 interface ForegroundLaunch {
 	id: string;
 	entries: Array<
-		Pick<FleetEntry, "agent" | "role" | "model" | "effort" | "goal" | "kind">
+		Pick<FleetEntry, "agent" | "role" | "model" | "effort" | "goal">
 	>;
 	startedAt: number;
-}
-
-type FleetWorkflowStepState = "planned" | "pending" | "running" | "completed" | "failed" | "skipped" | "cancelled";
-
-interface FleetWorkflowStep {
-	key: string;
-	agent: string;
-	label?: string;
-	phase?: string;
-	state: FleetWorkflowStepState;
-	model?: string;
-	effort?: string;
-	startedAt?: number;
-	tokens: { input: number; output: number; total: number };
-	goal?: string;
-}
-
-interface FleetWorkflow {
-	phase?: string;
-	total: number;
-	completed: number;
-	running: number;
-	pending: number;
-	planned: number;
-	failed: number;
-	skipped: number;
-	cancelled: number;
-	steps: FleetWorkflowStep[];
-	omitted: number;
 }
 
 interface FleetEntry {
@@ -62,23 +53,45 @@ interface FleetEntry {
 	model?: string;
 	effort?: string;
 	startedAt: number;
-	tokens: { input: number; output: number; total: number };
+	tokens: { input?: number; output?: number; total?: number };
 	goal?: string;
-	kind?: "workflow";
-	workflow?: FleetWorkflow;
 }
 
 interface FleetSnapshot {
 	entries: FleetEntry[];
 	totalActive: number;
+	omitted?: number;
+}
+
+interface WorkflowDetailChild {
+	childId: string;
+	agent?: string;
+	sessionName?: string;
+	model?: string;
+	thinking?: string;
+	state: string;
+	activity?: { inputTokens?: number; outputTokens?: number; tokens?: number };
+}
+interface WorkflowDetail {
+	workflowRunId: string;
+	parentToolCallId: string;
+	workflowState: string;
+	inventoryComplete: boolean;
+	children: WorkflowDetailChild[];
+	startedAt: number;
+}
+interface AsyncSnapshotRun {
+	id: string;
+	kind: string;
+	state: string;
+	label: string;
+	startedAt?: number;
+	updatedAt?: number;
 }
 
 type ProjectedEntry = Omit<FleetEntry, "key">;
 
 const MAX_FLEET_ENTRIES = 16;
-const MAX_WORKFLOW_STEPS = 16;
-const MAX_WORKFLOW_TOTAL = 256;
-const WORKFLOW_STEP_STATES = new Set<FleetWorkflowStepState>(["planned", "pending", "running", "completed", "failed", "skipped", "cancelled"]);
 const SGR = /\x1b\[[0-?]*[ -/]*m/g;
 
 function cleanText(value: unknown, maximum: number): string | undefined {
@@ -97,83 +110,161 @@ function safeCount(value: unknown): number {
 		: 0;
 }
 
-function parseWorkflowStep(value: unknown): FleetWorkflowStep | undefined {
-	const step = record(value);
-	const key = cleanText(step?.key, 96);
-	const agent = cleanText(step?.agent, 96);
-	const state = cleanText(step?.state, 16) as FleetWorkflowStepState | undefined;
-	const tokens = record(step?.tokens);
-	if (!key || !agent || !state || !WORKFLOW_STEP_STATES.has(state) || !tokens) return undefined;
-	const startedAt = step?.startedAt;
-	const label = cleanText(step?.label, 128);
-	const phase = cleanText(step?.phase, 128);
-	const model = cleanText(step?.model, 128);
-	const effort = cleanText(step?.effort, 64);
-	const goal = cleanText(step?.goal, 512);
-	return {
-		key,
-		agent,
-		...(label ? { label } : {}),
-		...(phase ? { phase } : {}),
-		state,
-		...(model ? { model } : {}),
-		...(effort ? { effort } : {}),
-		...(typeof startedAt === "number" && Number.isSafeInteger(startedAt) && startedAt >= 0 ? { startedAt } : {}),
-		tokens: { input: safeCount(tokens.input), output: safeCount(tokens.output), total: safeCount(tokens.total) },
-		...(goal ? { goal } : {}),
-	};
+function validNativeId(value: unknown): value is string {
+	return (
+		typeof value === "string" &&
+		value.length <= 4_096 &&
+		value.trim().length > 0 &&
+		Buffer.byteLength(value, "utf8") <= 4_096
+	);
 }
 
-function normalizeWorkflowProgress(workflow: Record<string, unknown>, steps: FleetWorkflowStep[]) {
-	const observed = {
-		completed: steps.filter((step) => step.state === "completed").length,
-		running: steps.filter((step) => step.state === "running").length,
-		pending: steps.filter((step) => step.state === "pending").length,
-		planned: steps.filter((step) => step.state === "planned").length,
-		failed: steps.filter((step) => step.state === "failed").length,
-		skipped: steps.filter((step) => step.state === "skipped").length,
-		cancelled: steps.filter((step) => step.state === "cancelled").length,
-	};
-	const boundedCount = (value: unknown) => Math.min(MAX_WORKFLOW_TOTAL, safeCount(value));
-	let completed = Math.max(observed.completed, boundedCount(workflow.completed));
-	let running = Math.max(observed.running, boundedCount(workflow.running));
-	let pending = Math.max(observed.pending, boundedCount(workflow.pending));
-	let planned = Math.max(observed.planned, boundedCount(workflow.planned));
-	let failed = Math.max(observed.failed, boundedCount(workflow.failed));
-	let skipped = Math.max(observed.skipped, boundedCount(workflow.skipped));
-	let cancelled = Math.max(observed.cancelled, boundedCount(workflow.cancelled));
-	if (completed + running + pending + planned + failed + skipped + cancelled > MAX_WORKFLOW_TOTAL) {
-		({ completed, running, pending, planned, failed, skipped, cancelled } = observed);
+function parseWorkflowChildren(
+	value: unknown,
+	expectedRunId?: string,
+	expectedToolCallId?: string,
+): WorkflowDetail | undefined {
+	try {
+		const source = record(value);
+		if (
+			!source ||
+			source.version !== 1 ||
+			!validNativeId(source.workflowRunId) ||
+			!validNativeId(source.parentToolCallId) ||
+			(expectedRunId && source.workflowRunId !== expectedRunId) ||
+			(expectedToolCallId && source.parentToolCallId !== expectedToolCallId) ||
+			typeof source.inventoryComplete !== "boolean" ||
+			!WORKFLOW_STATES.has(String(source.workflowState)) ||
+			!Array.isArray(source.children)
+		)
+			return undefined;
+		const complete = source.children.length <= 32;
+		const children: WorkflowDetailChild[] = [];
+		const childIds = new Set<string>();
+		for (const raw of source.children.slice(0, 32)) {
+			const child = record(raw);
+			if (
+				!child ||
+				typeof child.childId !== "string" ||
+				!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(child.childId) ||
+				childIds.has(child.childId) ||
+				![
+					"pending",
+					"running",
+					"completed",
+					"failed",
+					"paused",
+					"stopped",
+					"rejected",
+					"detached",
+				].includes(String(child.state))
+			)
+				continue;
+			childIds.add(child.childId);
+			const activity =
+				child.state === "running" ? record(child.activity) : undefined;
+			children.push({
+				childId: child.childId,
+				...(cleanText(child.agent, 96)
+					? { agent: cleanText(child.agent, 96) }
+					: {}),
+				...(cleanText(child.sessionName, 96)
+					? { sessionName: cleanText(child.sessionName, 96) }
+					: {}),
+				...(cleanText(child.model, 128)
+					? { model: cleanText(child.model, 128) }
+					: {}),
+				...(cleanText(child.thinking, 64)
+					? { thinking: cleanText(child.thinking, 64) }
+					: {}),
+				state: String(child.state),
+				...(activity
+					? {
+							activity: {
+								...(typeof activity.inputTokens === "number" &&
+								Number.isFinite(activity.inputTokens) &&
+								activity.inputTokens >= 0
+									? { inputTokens: safeCount(activity.inputTokens) }
+									: {}),
+								...(typeof activity.outputTokens === "number" &&
+								Number.isFinite(activity.outputTokens) &&
+								activity.outputTokens >= 0
+									? { outputTokens: safeCount(activity.outputTokens) }
+									: {}),
+								...(typeof activity.tokens === "number" &&
+								Number.isFinite(activity.tokens) &&
+								activity.tokens >= 0
+									? { tokens: safeCount(activity.tokens) }
+									: {}),
+							},
+						}
+					: {}),
+			});
+		}
+		// Native summaries have no timestamp. This is first observation, not child runtime.
+		return {
+			workflowRunId: source.workflowRunId,
+			parentToolCallId: source.parentToolCallId,
+			workflowState: String(source.workflowState),
+			inventoryComplete:
+				source.inventoryComplete &&
+				complete &&
+				children.length === source.children.length,
+			children,
+			startedAt: Date.now(),
+		};
+	} catch {
+		return undefined;
 	}
-	const accounted = completed + running + pending + planned + failed + skipped + cancelled;
-	const total = Math.min(MAX_WORKFLOW_TOTAL, Math.max(steps.length, accounted, boundedCount(workflow.total)));
-	return {
-		total,
-		completed,
-		running,
-		pending,
-		planned,
-		failed,
-		skipped,
-		cancelled,
-		omitted: Math.min(total, Math.max(boundedCount(workflow.omitted), Math.max(0, total - steps.length))),
-	};
 }
 
-function parseWorkflow(value: unknown): FleetWorkflow | undefined {
-	const workflow = record(value);
-	if (!workflow || !Array.isArray(workflow.steps)) return undefined;
-	const steps = workflow.steps.slice(0, MAX_WORKFLOW_STEPS).flatMap((value) => {
-		const step = parseWorkflowStep(value);
-		return step ? [step] : [];
-	});
-	const phase = cleanText(workflow.phase, 128);
-	return {
-		...(phase ? { phase } : {}),
-		...normalizeWorkflowProgress(workflow, steps),
-		steps,
-	};
+function parseAsyncSnapshot(value: unknown): AsyncSnapshotRun[] {
+	try {
+		const snapshot = record(value);
+		if (
+			!snapshot ||
+			snapshot.version !== 1 ||
+			snapshot.kind !== "pi-subagents.async-status-snapshot" ||
+			!Array.isArray(snapshot.runs)
+		)
+			return [];
+		const seen = new Set<string>();
+		return snapshot.runs.slice(0, 64).flatMap((raw) => {
+			const run = record(raw);
+			if (
+				!run ||
+				!validNativeId(run.id) ||
+				seen.has(run.id) ||
+				run.kind !== "workflow" ||
+				!ASYNC_SNAPSHOT_STATES.has(String(run.state))
+			)
+				return [];
+			seen.add(run.id);
+			return [
+				{
+					id: run.id,
+					kind: "workflow",
+					state: String(run.state),
+					label: cleanText(run.label, 128) ?? "workflow",
+					...(typeof run.startedAt === "number" &&
+					Number.isSafeInteger(run.startedAt) &&
+					run.startedAt >= 0
+						? { startedAt: run.startedAt }
+						: {}),
+					...(typeof run.updatedAt === "number" &&
+					Number.isSafeInteger(run.updatedAt) &&
+					run.updatedAt >= 0
+						? { updatedAt: run.updatedAt }
+						: {}),
+				},
+			];
+		});
+	} catch {
+		return [];
+	}
 }
+
+export { parseWorkflowChildren, parseAsyncSnapshot };
 
 /** Parse the documented optional v1 fleet capability; malformed entries are dropped. */
 export function parseSubagentFleet(value: unknown): FleetSnapshot | undefined {
@@ -187,12 +278,19 @@ export function parseSubagentFleet(value: unknown): FleetSnapshot | undefined {
 			const agent = cleanText(entry?.agent, 96);
 			const startedAt = entry?.startedAt;
 			const tokens = record(entry?.tokens);
-			if (!key || !agent || typeof startedAt !== "number" || !Number.isSafeInteger(startedAt) || startedAt < 0 || !tokens) continue;
+			if (
+				!key ||
+				!agent ||
+				typeof startedAt !== "number" ||
+				!Number.isSafeInteger(startedAt) ||
+				startedAt < 0 ||
+				!tokens
+			)
+				continue;
 			const role = cleanText(entry?.role, 96);
 			const model = cleanText(entry?.model, 128);
 			const effort = cleanText(entry?.effort, 64);
 			const goal = cleanText(entry?.goal, 512);
-			const workflow = entry?.kind === "workflow" ? parseWorkflow(entry.workflow) : undefined;
 			entries.push({
 				key,
 				agent,
@@ -201,16 +299,31 @@ export function parseSubagentFleet(value: unknown): FleetSnapshot | undefined {
 				...(effort ? { effort } : {}),
 				startedAt,
 				tokens: {
-					input: safeCount(tokens.input),
-					output: safeCount(tokens.output),
-					total: safeCount(tokens.total),
+					...(typeof tokens.input === "number" && Number.isFinite(tokens.input)
+						? { input: safeCount(tokens.input) }
+						: {}),
+					...(typeof tokens.output === "number" &&
+					Number.isFinite(tokens.output)
+						? { output: safeCount(tokens.output) }
+						: {}),
+					...(typeof tokens.total === "number" && Number.isFinite(tokens.total)
+						? { total: safeCount(tokens.total) }
+						: {}),
 				},
 				...(goal ? { goal } : {}),
-				...(workflow ? { kind: "workflow" as const, workflow } : {}),
 			});
 		}
-		entries.sort((left, right) => left.startedAt - right.startedAt || left.key.localeCompare(right.key));
-		return { entries, totalActive: Math.max(entries.length, safeCount(fleet.totalActive)) };
+		entries.sort(
+			(left, right) =>
+				left.startedAt - right.startedAt || left.key.localeCompare(right.key),
+		);
+		return {
+			entries,
+			totalActive: Math.max(entries.length, safeCount(fleet.totalActive)),
+			...(fleet.omitted === undefined
+				? {}
+				: { omitted: Math.min(10_000, safeCount(fleet.omitted)) }),
+		};
 	} catch {
 		return undefined;
 	}
@@ -244,34 +357,26 @@ function effortColor(effort: string): Parameters<Theme["fg"]>[0] {
 	return effort === "max" ? "error" : "text";
 }
 
-function modelAndEffort(entry: Pick<FleetEntry, "model" | "effort">, theme: Theme, width?: number): string {
+function modelAndEffort(
+	entry: Pick<FleetEntry, "model" | "effort">,
+	theme: Theme,
+	width?: number,
+): string {
 	const model = entry.model
 		? theme.fg("accent", theme.bold(formatModel(entry.model)))
 		: theme.fg("muted", "model pending");
-	const effort = theme.fg(entry.effort ? effortColor(entry.effort) : "dim", entry.effort ?? "effort pending");
+	const effort = theme.fg(
+		entry.effort ? effortColor(entry.effort) : "dim",
+		entry.effort ?? "effort pending",
+	);
 	const divider = theme.fg("dim", " · ");
 	if (width === undefined) return `${model}${divider}${effort}`;
 	// Keep effort visible even when a long model name needs clipping.
 	const modelWidth = Math.max(0, width - visibleWidth(divider + effort));
-	return truncateToWidth(`${truncateToWidth(model, modelWidth)}${divider}${effort}`, width);
-}
-
-function workflowChildLines(step: FleetWorkflowStep, theme: Theme, width: number, rows: number): string[] {
-	const divider = theme.fg("dim", " · ");
-	const prefix = `  ${workflowStepGlyph(step.state, theme)} `;
-	const label = step.label ?? step.key;
-	const agent = step.agent !== label ? `${divider}${theme.fg("muted", step.agent)}` : "";
-	const state = step.state === "running"
-		? ""
-		: `${divider}${theme.fg(step.state === "planned" ? "dim" : step.state === "pending" ? "muted" : "text", workflowStepLabel(step.state))}`;
-	const identity = `${prefix}${label}${agent}${state}`;
-	const inline = `${identity}${divider}${modelAndEffort(step, theme)}`;
-	if (visibleWidth(inline) <= width) return [inline];
-	if (rows >= 2) return [truncateToWidth(identity, width), `    ${modelAndEffort(step, theme, Math.max(0, width - 4))}`];
-	// A short shelf still shows the child model/effort, not just its task label.
-	const agentWidth = Math.min(8, visibleWidth(step.agent), Math.max(0, width - visibleWidth(prefix) - 20));
-	const compactIdentity = agentWidth > 0 ? `${truncateToWidth(step.agent, agentWidth)}${divider}` : "";
-	return [`${prefix}${compactIdentity}${modelAndEffort(step, theme, Math.max(0, width - visibleWidth(prefix + compactIdentity)))}`];
+	return truncateToWidth(
+		`${truncateToWidth(model, modelWidth)}${divider}${effort}`,
+		width,
+	);
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -303,8 +408,6 @@ function launchEntries(value: unknown): ForegroundLaunch["entries"] {
 				: {}),
 		};
 	};
-	const workflowScript = cleanText(input.workflowScript, 512);
-	if (workflowScript) return [{ agent: "workflow", kind: "workflow", goal: workflowScript }];
 	if (Array.isArray(input.tasks))
 		return input.tasks
 			.map(entry)
@@ -350,7 +453,8 @@ export function parseSubagentStatusText(value: unknown): {
 	);
 	const countText = heading?.[1];
 	const count = countText ? Number(countText) : 0;
-	if (!Number.isSafeInteger(count) || count <= 0) return { lines: [], active: false, count: 0 };
+	if (!Number.isSafeInteger(count) || count <= 0)
+		return { lines: [], active: false, count: 0 };
 	// Legacy peers expose only human text, whose child lines can contain private IDs.
 	// Keep it as an availability fallback, never a child-detail source.
 	const lines = [`${count} async run${count === 1 ? "" : "s"}`];
@@ -364,19 +468,111 @@ function elapsed(startedAt: number, now: number): string {
 		: `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
-function workflowStepGlyph(state: FleetWorkflowStepState, theme: Theme): string {
-	if (state === "running") return theme.fg("accent", "◉");
-	if (state === "pending") return theme.fg("muted", "○");
-	if (state === "planned") return theme.fg("dim", "◇");
-	if (state === "failed") return theme.fg("error", "×");
-	if (state === "cancelled") return theme.fg("warning", "–");
-	if (state === "skipped") return theme.fg("dim", "–");
-	return theme.fg("success", "✓");
+function activeState(state: string): boolean {
+	return state === "running" || state === "pending" || state === "queued";
 }
 
-function workflowStepLabel(state: FleetWorkflowStepState): string {
-	if (state === "pending") return "queued";
-	return state;
+function activeDetail(detail: WorkflowDetail): boolean {
+	return (
+		activeState(detail.workflowState) ||
+		detail.children.some((child) => activeState(child.state))
+	);
+}
+
+function parseWorkflowResult(
+	value: unknown,
+	runId: string,
+	toolCallId?: string,
+): WorkflowDetail | undefined {
+	try {
+		const envelope = record(value);
+		if (envelope?.mode !== "workflow" || envelope.runId !== runId)
+			return undefined;
+		return parseWorkflowChildren(envelope.workflowChildren, runId, toolCallId);
+	} catch {
+		return undefined;
+	}
+}
+
+function workflowDetailLines(
+	detail: WorkflowDetail,
+	theme: Theme,
+	width: number,
+	now: number,
+): string[] {
+	const fit = (line: string) => truncateToWidth(line, Math.max(0, width));
+	const divider = theme.fg("dim", " · ");
+	const lines = [
+		fit(
+			`${theme.fg("accent", "◇")} ${theme.bold("Workflow detail")}${divider}${detail.workflowState}${divider}${theme.fg("dim", `seen ${elapsed(detail.startedAt, now)}`)}`,
+		),
+	];
+	const active = detail.children.filter((child) => activeState(child.state));
+	const selected = (active.length > 0 ? active : detail.children).slice(0, 2);
+	for (const child of selected) {
+		// Separate bounded rows keep state, effort and usage out of the outer clipper.
+		const prefix = `  ${workflowStateGlyph(child.state, theme)} `;
+		const label = child.sessionName ?? child.agent ?? "child";
+		const labelWidth = Math.max(
+			0,
+			width - visibleWidth(prefix) - child.state.length - 1,
+		);
+		lines.push(
+			fit(
+				withRightHint(
+					`${prefix}${truncateToWidth(label, labelWidth)}`,
+					child.state,
+					width,
+				),
+			),
+		);
+		const effort = truncateToWidth(
+			child.thinking ?? "effort n/a",
+			Math.min(10, Math.max(0, width - 4)),
+		);
+		const model = child.model ? formatModel(child.model) : "model n/a";
+		const modelWidth = Math.max(0, width - 4 - visibleWidth(divider + effort));
+		lines.push(
+			fit(
+				`    ${theme.fg("accent", truncateToWidth(model, modelWidth))}${divider}${theme.fg("text", effort)}`,
+			),
+		);
+		const usage =
+			child.state === "running" &&
+			child.activity &&
+			(child.activity.inputTokens !== undefined ||
+				child.activity.outputTokens !== undefined)
+				? `↑${child.activity.inputTokens === undefined ? "unavailable" : formatTokens(child.activity.inputTokens)} ↓${child.activity.outputTokens === undefined ? "unavailable" : formatTokens(child.activity.outputTokens)}`
+				: "usage unavailable";
+		lines.push(fit(theme.fg("muted", `    ${usage}`)));
+	}
+	const completed = detail.children.filter(
+		(child) => child.state === "completed",
+	).length;
+	const hidden = detail.children.length - selected.length;
+	lines.push(
+		fit(
+			theme.fg(
+				"dim",
+				`  ${detail.children.length} observed${completed ? ` · ${completed} completed` : ""}`,
+			),
+		),
+	);
+	if (hidden > 0)
+		lines.push(fit(theme.fg("dim", `  ${hidden} children hidden`)));
+	if (!detail.inventoryComplete)
+		lines.push(fit(theme.fg("dim", "  inventory incomplete")));
+	return lines;
+}
+
+function workflowStateGlyph(state: string, theme: Theme): string {
+	if (state === "running") return theme.fg("accent", "◉");
+	if (state === "pending" || state === "queued") return theme.fg("muted", "○");
+	if (state === "completed") return theme.fg("success", "✓");
+	if (state === "failed" || state === "rejected") return theme.fg("error", "×");
+	if (state === "paused" || state === "detached")
+		return theme.fg("warning", "‖");
+	return theme.fg("dim", "–");
 }
 
 function colorStatusLine(line: string, theme: Theme): string {
@@ -399,14 +595,11 @@ function projectEntries(
 	snapshot: FleetSnapshot | undefined,
 	foreground: ReadonlyMap<string, ForegroundLaunch>,
 ): { entries: ProjectedEntry[]; totalActive: number } {
-	const remote = (snapshot?.entries ?? []).map(({ key: _key, ...entry }) => entry);
+	const remote = (snapshot?.entries ?? []).map(
+		({ key: _key, ...entry }) => entry,
+	);
 	const availableMatches = new Map<string, number>();
-	let availableWorkflowMatches = 0;
 	for (const entry of remote) {
-		if (entry.kind === "workflow") {
-			availableWorkflowMatches += 1;
-			continue;
-		}
 		const signature = entrySignature(entry);
 		availableMatches.set(signature, (availableMatches.get(signature) ?? 0) + 1);
 	}
@@ -416,12 +609,8 @@ function projectEntries(
 			const projected: ProjectedEntry = {
 				...entry,
 				startedAt: launch.startedAt,
-				tokens: { input: 0, output: 0, total: 0 },
+				tokens: {},
 			};
-			if (projected.kind === "workflow" && availableWorkflowMatches > 0) {
-				availableWorkflowMatches -= 1;
-				continue;
-			}
 			const signature = entrySignature(projected);
 			const matches = availableMatches.get(signature) ?? 0;
 			if (matches > 0) {
@@ -446,25 +635,61 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 	let disposed = false;
 	let rpcAvailable = false;
 	let fleetSupported = false;
+	let foregroundDetails = new Map<string, WorkflowDetail>();
+	let asyncDetails = new Map<string, WorkflowDetail>();
+	const detailKey = (detail: WorkflowDetail): string =>
+		JSON.stringify([detail.parentToolCallId, detail.workflowRunId]);
+	const retainDetails = () => {
+		while (foregroundDetails.size + asyncDetails.size > MAX_WORKFLOW_DETAILS) {
+			if (asyncDetails.size > 0)
+				asyncDetails.delete(asyncDetails.keys().next().value!);
+			else foregroundDetails.delete(foregroundDetails.keys().next().value!);
+		}
+	};
+	const allDetails = () => [
+		...foregroundDetails.values(),
+		...asyncDetails.values(),
+	];
+	let workflowRunIds: string[] = [];
+	let workflowQueue: string[] = [];
+	let targetedRequestTimes: number[] = [];
+	let snapshotIncomplete = false;
+	let snapshotActive = false;
 	let probePending = false;
 	let statusPending = false;
 	let statusDirty = false;
 	let generation = 0;
 	let invalidate: () => void = () => undefined;
 	let pollTimer: ReturnType<typeof setTimeout> | undefined;
+	let pollDueAt = Infinity;
 	const pendingRpc = new Set<() => void>();
 	const foreground = new Map<string, ForegroundLaunch>();
+	// Lifecycle ownership is independent of optional ordinary-launch placeholders.
+	const liveCalls = new Map<string, { startedAt: number; runId?: string }>();
 
 	const visibleStateKey = (): string => {
-		if (fleetSnapshot?.totalActive) return JSON.stringify(fleetSnapshot);
-		if (statusLines.length > 0 || legacyActiveCount > 0) {
-			return JSON.stringify({ statusLines, legacyActiveCount });
-		}
-		return "idle";
+		if (
+			!fleetSnapshot?.totalActive &&
+			!statusLines.length &&
+			!legacyActiveCount &&
+			!allDetails().length &&
+			!workflowRunIds.length &&
+			!snapshotIncomplete
+		)
+			return "idle";
+		return JSON.stringify({
+			fleet: fleetSnapshot,
+			statusLines,
+			legacyActiveCount,
+			details: allDetails(),
+			workflowRunIds,
+			snapshotIncomplete,
+		});
 	};
 	const clearPoll = () => {
 		if (pollTimer) clearTimeout(pollTimer);
 		pollTimer = undefined;
+		pollDueAt = Infinity;
 	};
 	const resetRemoteState = () => {
 		clearPoll();
@@ -475,6 +700,14 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 		statusActive = false;
 		rpcAvailable = false;
 		fleetSupported = false;
+		foregroundDetails = new Map();
+		asyncDetails = new Map();
+		workflowRunIds = [];
+		workflowQueue = [];
+		targetedRequestTimes = [];
+		snapshotIncomplete = false;
+		snapshotActive = false;
+		liveCalls.clear();
 		probePending = false;
 		statusPending = false;
 		statusDirty = false;
@@ -482,7 +715,12 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 	const schedulePoll = (delay: number) => {
 		clearPoll();
 		if (!connected || disposed || !rpcAvailable) return;
-		pollTimer = setTimeout(() => void refreshStatus(), delay);
+		pollDueAt = Date.now() + delay;
+		pollTimer = setTimeout(() => {
+			pollTimer = undefined;
+			pollDueAt = Infinity;
+			void refreshStatus();
+		}, delay);
 		pollTimer.unref?.();
 	};
 
@@ -509,24 +747,32 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 			unsubscribe = pi.events.on(
 				`${RPC_REPLY_PREFIX}${requestId}`,
 				(payload) => {
-					const reply = record(payload);
-					if (
-						requestGeneration !== generation ||
-						reply?.requestId !== requestId
-					)
-						return;
-					if (reply.success !== true) {
-						const error = record(reply.error);
-						finish(
-							new Error(
-								typeof error?.message === "string"
-									? error.message
-									: "Subagent RPC failed.",
-							),
-						);
-						return;
+					try {
+						const reply = record(payload);
+						if (
+							requestGeneration !== generation ||
+							reply?.requestId !== requestId
+						)
+							return;
+						if (reply.version !== 1 || reply.method !== method) {
+							finish(new Error("Invalid subagent RPC envelope."));
+							return;
+						}
+						if (reply.success !== true) {
+							const error = record(reply.error);
+							finish(
+								new Error(
+									typeof error?.message === "string"
+										? error.message
+										: "Subagent RPC failed.",
+								),
+							);
+							return;
+						}
+						finish(undefined, reply.data);
+					} catch {
+						finish(new Error("Malformed subagent RPC response."));
 					}
-					finish(undefined, reply.data);
 				},
 			);
 			const timer = setTimeout(
@@ -552,44 +798,113 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 		}
 		statusPending = true;
 		const requestGeneration = generation;
-		const previousStateKey = visibleStateKey();
+		const current = () =>
+			connected && !disposed && requestGeneration === generation;
 		try {
 			const data = record(await rpc("status"));
-			if (!connected || requestGeneration !== generation) return;
-			const fleet = fleetSupported
+			if (!current()) return;
+			const snapshotRuns = parseAsyncSnapshot(data?.asyncSnapshot);
+			const nextIds = snapshotRuns.map((run) => run.id);
+			const ids = new Set(nextIds);
+			// Preserve queue order under changing inventories; new IDs join the tail.
+			workflowQueue = workflowQueue.filter((id) => ids.has(id));
+			const queued = new Set(workflowQueue);
+			workflowQueue.push(...nextIds.filter((id) => !queued.has(id)));
+			const nextDetails = new Map(
+				[...asyncDetails].filter(([id]) => ids.has(id)),
+			);
+			for (
+				let i = 0;
+				i < Math.min(MAX_TARGETED_STATUS_PER_REFRESH, nextIds.length);
+				i++
+			) {
+				if (!current()) return;
+				targetedRequestTimes = targetedRequestTimes.filter(
+					(time) => Date.now() - time < ACTIVE_POLL_MS,
+				);
+				if (targetedRequestTimes.length >= MAX_TARGETED_STATUS_PER_REFRESH)
+					break;
+				const runId = workflowQueue.shift()!;
+				workflowQueue.push(runId);
+				targetedRequestTimes.push(Date.now());
+				const previous = nextDetails.get(runId);
+				nextDetails.delete(runId);
+				try {
+					const targeted = record(await rpc("status", { runId }));
+					if (!current()) return;
+					const detail = parseWorkflowResult(targeted?.details, runId);
+					if (detail) {
+						const start = previous?.startedAt ?? detail.startedAt;
+						nextDetails.set(runId, { ...detail, startedAt: start });
+					}
+				} catch {
+					if (!current()) return;
+				}
+			}
+			if (!current()) return;
+			const previousStateKey = visibleStateKey();
+			workflowRunIds = nextIds;
+			snapshotActive = snapshotRuns.some((run) => activeState(run.state));
+			const snapshot = record(data?.asyncSnapshot);
+			const omitted = record(snapshot?.omitted);
+			snapshotIncomplete =
+				safeCount(omitted?.runs) > 0 ||
+				safeCount(omitted?.children) > 0 ||
+				omitted?.byteLimitExceeded === true ||
+				(Array.isArray(snapshot?.runs) && snapshot.runs.length > 64);
+			// Compare against live foreground ownership AFTER awaits, never a stale copy.
+			asyncDetails = new Map(
+				[...nextDetails].filter(
+					([, detail]) => !foregroundDetails.has(detailKey(detail)),
+				),
+			);
+			retainDetails();
+			fleetSnapshot = fleetSupported
 				? parseSubagentFleet(data?.fleet)
 				: undefined;
-			fleetSnapshot = fleet;
-			if (fleet) {
-				statusLines = [];
-				legacyActiveCount = 0;
-				statusActive = fleet.totalActive > 0;
-			} else {
-				const parsed = parseSubagentStatusText(data?.text);
-				statusLines = parsed.lines;
-				legacyActiveCount = parsed.count;
-				statusActive = parsed.active;
-			}
+			const parsed = fleetSnapshot
+				? { lines: [], count: 0, active: fleetSnapshot.totalActive > 0 }
+				: parseSubagentStatusText(data?.text);
+			statusLines = parsed.lines;
+			legacyActiveCount = parsed.count;
+			statusActive = parsed.active;
 			if (visibleStateKey() !== previousStateKey) invalidate();
 		} catch {
-			if (connected && requestGeneration === generation) {
+			if (current()) {
+				const previousStateKey = visibleStateKey();
 				statusLines = [];
 				fleetSnapshot = undefined;
 				legacyActiveCount = 0;
 				statusActive = false;
+				asyncDetails.clear();
+				workflowRunIds = [];
+				workflowQueue = [];
+				snapshotIncomplete = false;
+				snapshotActive = false;
 				if (visibleStateKey() !== previousStateKey) invalidate();
 			}
 		} finally {
 			if (requestGeneration !== generation) return;
 			statusPending = false;
-			if (statusDirty) {
-				statusDirty = false;
-				queueMicrotask(() => void refreshStatus());
-			} else {
-				schedulePoll(
-					statusActive || foreground.size ? ACTIVE_POLL_MS : IDLE_POLL_MS,
+			const active =
+				statusActive ||
+				snapshotActive ||
+				foreground.size > 0 ||
+				allDetails().some(activeDetail);
+			let delay = active || statusDirty ? ACTIVE_POLL_MS : IDLE_POLL_MS;
+			// Event refreshes must not postpone the next eligible targeted cadence.
+			if (
+				(active || statusDirty) &&
+				workflowQueue.length &&
+				targetedRequestTimes.length
+			) {
+				delay = Math.max(
+					0,
+					ACTIVE_POLL_MS - (Date.now() - targetedRequestTimes[0]!),
 				);
 			}
+			statusDirty = false;
+			schedulePoll(delay);
 		}
 	};
 
@@ -624,23 +939,73 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 	];
 
 	pi.on("tool_execution_start", (event) => {
-		if (event.toolName !== "subagent") return;
+		if (
+			event.toolName !== "subagent" ||
+			!connected ||
+			disposed ||
+			!validNativeId(event.toolCallId)
+		)
+			return;
+		if (liveCalls.has(event.toolCallId)) return;
+		const startedAt = Date.now();
+		liveCalls.set(event.toolCallId, { startedAt });
 		const entries = launchEntries(event.args);
-		if (!entries.length) return;
-		foreground.set(event.toolCallId, {
-			id: event.toolCallId,
-			entries,
-			startedAt: Date.now(),
-		});
-		if (connected) {
+		if (entries.length) {
+			foreground.set(event.toolCallId, {
+				id: event.toolCallId,
+				entries,
+				startedAt,
+			});
 			invalidate();
-			clearPoll();
-			refreshOrProbe();
+		}
+		refreshOrProbe();
+	});
+	pi.on("tool_execution_update", (event) => {
+		if (event.toolName !== "subagent" || !connected || disposed) return;
+		const call = liveCalls.get(event.toolCallId);
+		if (!call) return;
+		try {
+			const envelope = record(record(event.partialResult)?.details);
+			if (!validNativeId(envelope?.runId)) return;
+			const parsed = parseWorkflowResult(
+				envelope,
+				envelope.runId,
+				event.toolCallId,
+			);
+			if (
+				!parsed ||
+				(call.runId !== undefined && call.runId !== parsed.workflowRunId)
+			)
+				return;
+			const before = visibleStateKey();
+			call.runId = parsed.workflowRunId;
+			foregroundDetails.set(detailKey(parsed), {
+				...parsed,
+				startedAt: call.startedAt,
+			});
+			const remote = asyncDetails.get(parsed.workflowRunId);
+			if (remote && detailKey(remote) === detailKey(parsed))
+				asyncDetails.delete(parsed.workflowRunId);
+			retainDetails();
+			if (before !== visibleStateKey()) invalidate();
+			if (activeDetail(parsed) && Date.now() + ACTIVE_POLL_MS < pollDueAt)
+				schedulePoll(ACTIVE_POLL_MS);
+		} catch {
+			/* Malformed external event data must not break the host. */
 		}
 	});
 	pi.on("tool_execution_end", (event) => {
-		if (event.toolName !== "subagent" || !foreground.delete(event.toolCallId))
-			return;
+		if (event.toolName !== "subagent") return;
+		const removedCall = liveCalls.delete(event.toolCallId);
+		const removedForeground = foreground.delete(event.toolCallId);
+		let removedDetail = false;
+		for (const [runId, detail] of foregroundDetails) {
+			if (detail.parentToolCallId === event.toolCallId) {
+				foregroundDetails.delete(runId);
+				removedDetail = true;
+			}
+		}
+		if (!removedCall && !removedForeground && !removedDetail) return;
 		if (connected) {
 			invalidate();
 			clearPoll();
@@ -665,7 +1030,7 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 		showTitleInNarrow: false,
 		order: 100,
 		connect(context) {
-			if (disposed) return () => undefined;
+			if (disposed || context.signal.aborted) return () => undefined;
 			generation += 1;
 			resetRemoteState();
 			foreground.clear();
@@ -674,6 +1039,7 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 			invalidate = context.invalidate;
 			queueMicrotask(() => void probe());
 			const disconnect = () => {
+				context.signal.removeEventListener("abort", disconnect);
 				if (!connected || generation !== connectionGeneration) return;
 				connected = false;
 				generation += 1;
@@ -685,18 +1051,22 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 		},
 		hiddenStatus() {
 			const projection = projectEntries(fleetSnapshot, foreground);
-			const count = fleetSnapshot ? projection.totalActive : Math.max(projection.totalActive, legacyActiveCount);
-			if (count <= 0) return undefined;
-			const workflows = projection.entries.filter((entry) => entry.kind === "workflow" && entry.workflow);
-			if (workflows.length === 0) return `◆ ${count} agent${count === 1 ? "" : "s"}`;
-			const workflowAgents = workflows.reduce((total, entry) => total + (entry.workflow?.running ?? 0) + (entry.workflow?.pending ?? 0) + (entry.workflow?.planned ?? 0), 0);
-			const agentCount = Math.max(0, count - workflows.length) + workflowAgents;
-			const parts = [`${workflows.length} workflow${workflows.length === 1 ? "" : "s"}`];
-			if (agentCount > 0) parts.push(`${agentCount} agent${agentCount === 1 ? "" : "s"}`);
-			return `◆ ${parts.join(" · ")}`;
+			const count = fleetSnapshot
+				? projection.totalActive
+				: Math.max(projection.totalActive, legacyActiveCount);
+			const details = allDetails().length;
+			if (count <= 0 && details <= 0) return undefined;
+			const parts: string[] = [];
+			if (count > 0)
+				parts.push(`◆ ${count} fleet agent${count === 1 ? "" : "s"}`);
+			if (details > 0)
+				parts.push(`◇ ${details} workflow detail${details === 1 ? "" : "s"}`);
+			return parts.join(" · ");
 		},
 		refreshIntervalMs() {
-			return foreground.size > 0 || (fleetSnapshot?.entries.length ?? 0) > 0
+			return foreground.size > 0 ||
+				(fleetSnapshot?.entries.length ?? 0) > 0 ||
+				allDetails().some(activeDetail)
 				? ELAPSED_REFRESH_MS
 				: undefined;
 		},
@@ -705,59 +1075,101 @@ export function createSubagentsPanel(pi: ExtensionAPI): SidebarPanel {
 			const divider = theme.fg("dim", " · ");
 			const projection = projectEntries(fleetSnapshot, foreground);
 			const lines: string[] = [];
+			if (maxRows <= 0 || width <= 0) return [];
+			const retained = allDetails();
+			const known = new Set([
+				...workflowRunIds,
+				...retained.map((detail) => detail.workflowRunId),
+				...[...liveCalls.values()].flatMap((call) =>
+					call.runId === undefined ? [] : [call.runId],
+				),
+			]);
+			const knownCount = Math.max(known.size, retained.length);
+			const fleetCount = Math.max(
+				projection.totalActive,
+				fleetSnapshot ? 0 : legacyActiveCount,
+			);
+			const hasDetails = knownCount > 0 || snapshotIncomplete;
+			const hint = theme.fg("dim", "/subagents-fleet");
+			if (hasDetails && maxRows === 1) {
+				const overview = `${fleetCount ? `◆ ${fleetCount} fleet · ` : "◇ "}${knownCount} details hidden${snapshotIncomplete ? " · async incomplete" : ""}`;
+				return [truncateToWidth(withRightHint(overview, hint, width), width)];
+			}
+			const cards = retained.map((detail) =>
+				workflowDetailLines(detail, theme, width, now),
+			);
+			const fleetReserve = fleetCount > 0 ? 1 : 0;
+			const needsFooter =
+				snapshotIncomplete ||
+				knownCount > retained.length ||
+				cards.reduce((sum, card) => sum + card.length, 0) >
+					maxRows - fleetReserve;
+			const detailBudget = Math.max(
+				0,
+				maxRows - fleetReserve - (needsFooter ? 1 : 0),
+			);
+			let shown = 0;
+			let clipped = 0;
+			for (const card of cards) {
+				const available = detailBudget - lines.length;
+				if (available <= 0) break;
+				lines.push(...card.slice(0, available));
+				shown++;
+				if (card.length > available) clipped++;
+			}
+			if (needsFooter && lines.length < maxRows - fleetReserve) {
+				const hidden = Math.max(0, knownCount - shown);
+				const parts = [
+					hidden > 0 ? `+${hidden} details hidden` : "",
+					clipped > 0 ? `${clipped} detail clipped` : "",
+					snapshotIncomplete ? "async inventory incomplete" : "",
+				].filter(Boolean);
+				lines.push(
+					truncateToWidth(
+						withRightHint(theme.fg("dim", parts.join(" · ")), hint, width),
+						width,
+					),
+				);
+			}
 			let represented = 0;
-			const renderEntry = (entry: ProjectedEntry, budget: number): string[] => {
-				const usage = theme.fg("text", `↑${formatTokens(entry.tokens.input)} ↓${formatTokens(entry.tokens.output)}`);
-				if (entry.kind === "workflow" && entry.workflow) {
-					if (budget <= 0) return [];
-					const phase = entry.workflow.phase ? `${divider}${theme.fg("accent", entry.workflow.phase)}` : "";
-					const header = `${theme.fg("accent", "◆")} ${theme.bold("Workflow")}${phase}${divider}${theme.fg("dim", elapsed(entry.startedAt, now))}`;
-					if (budget === 1) return [header];
-					const activeSteps = entry.workflow.steps.filter((step) => step.state === "running" || step.state === "pending" || step.state === "planned");
-					const candidates = activeSteps.length > 0 ? activeSteps : entry.workflow.steps;
-					const children: string[] = [];
-					let shownChildren = 0;
-					for (const step of candidates.slice(0, 2)) {
-						const rows = budget - 2 - children.length;
-						if (rows <= 0) break;
-						children.push(...workflowChildLines(step, theme, width, rows));
-						shownChildren += 1;
-					}
-					const progress = entry.workflow.total > 0
-						? `${entry.workflow.completed}/${entry.workflow.total} complete${entry.workflow.planned > 0 ? ` · ${entry.workflow.planned} planned` : ""}${entry.workflow.pending > 0 ? ` · ${entry.workflow.pending} queued` : ""}${entry.workflow.failed > 0 ? ` · ${entry.workflow.failed} failed` : ""}${entry.workflow.cancelled > 0 ? ` · ${entry.workflow.cancelled} cancelled` : ""}${entry.workflow.skipped > 0 ? ` · ${entry.workflow.skipped} skipped` : ""}`
-						: "waiting for child launch";
-					const childTotal = activeSteps.length > 0 ? entry.workflow.running + entry.workflow.pending + entry.workflow.planned : entry.workflow.total;
-					const hiddenChildren = Math.max(0, childTotal - shownChildren);
-					const more = hiddenChildren > 0 ? ` · +${hiddenChildren} more` : "";
-					const summary = `${theme.fg("dim", `  ${progress}${more}`)}${divider}${usage}`;
-					return [header, ...children, summary];
-				}
-				const role = entry.role && entry.role !== entry.agent
-					? `${entry.role} · ${entry.agent}`
-					: entry.agent;
+			const renderEntry = (entry: ProjectedEntry): string[] => {
+				const usage = theme.fg(
+					"text",
+					`↑${entry.tokens.input === undefined ? "unavailable" : formatTokens(entry.tokens.input)} ↓${entry.tokens.output === undefined ? "unavailable" : formatTokens(entry.tokens.output)}`,
+				);
+				const role =
+					entry.role && entry.role !== entry.agent
+						? `${entry.role} · ${entry.agent}`
+						: entry.agent;
 				const identity = `${theme.fg("accent", "◆")} ${role}${divider}${theme.fg("dim", elapsed(entry.startedAt, now))}`;
 				const metadata = modelAndEffort(entry, theme);
 				const goal = theme.fg("dim", `↳ ${entry.goal ?? "Goal unavailable"}`);
 				if (surface === "narrow") {
-					return [`${identity}${divider}${metadata}`, `${usage}${divider}${goal}`];
+					return [
+						`${identity}${divider}${metadata}`,
+						`${usage}${divider}${goal}`,
+					];
 				}
 				return [identity, `${metadata}${divider}${usage}`, goal];
 			};
 			for (const entry of projection.entries) {
-				const reserveOverflow = projection.totalActive > represented + 1 ? 1 : 0;
+				const reserveOverflow =
+					projection.totalActive > represented + 1 ? 1 : 0;
 				const budget = Math.max(0, maxRows - lines.length - reserveOverflow);
-				const entryLines = renderEntry(entry, budget);
+				const entryLines = renderEntry(entry);
 				if (entryLines.length === 0 || entryLines.length > budget) break;
 				lines.push(...entryLines);
 				represented += 1;
 			}
 			const omitted = Math.max(0, projection.totalActive - represented);
 			if (omitted > 0 && lines.length < maxRows) {
-				lines.push(withRightHint(
-					theme.fg("dim", `+${omitted} more`),
-					theme.fg("dim", "/subagents-fleet"),
-					width,
-				));
+				lines.push(
+					withRightHint(
+						theme.fg("dim", `+${omitted} more fleet entries`),
+						theme.fg("dim", "/subagents-fleet"),
+						width,
+					),
+				);
 			}
 			if (!fleetSnapshot) {
 				for (const line of statusLines) {
